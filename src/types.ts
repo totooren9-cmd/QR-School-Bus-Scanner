@@ -1,6 +1,12 @@
 export interface Student {
   id: string;
+  student_id?: string;
+  studentId?: string;
   studentCode: string;
+  qrCode?: string;
+  qr_code?: string;
+  qrImage?: string;
+  qr_image?: string;
   name: string;
   nickname?: string;
   grade: string;
@@ -8,20 +14,34 @@ export interface Student {
   className?: string;
   room?: string;
   number?: string | number;
+  seatNumber?: number | null;
+  seat_number?: number | null;
   dorm?: string;
   carID?: string;
+  car_id?: string;
   plate?: string;
   busNumber: string;
   dormOrStop?: string;
   busStopName?: string;
   pickup?: string;
+  pickupPoint?: string;
+  pickup_point?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  mapLink?: string;
+  map_link?: string;
   parent?: string;
+  parentName?: string;
+  parent_name?: string;
   parentPhone: string;
+  parent_phone?: string;
   avatarColor?: string;
   avatar?: string;
   avatarUrl?: string;
   status?: string;
   qrUrl?: string;
+  created_at?: string;
+  updated_at?: string;
   createdDate?: string;
 }
 

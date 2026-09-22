@@ -59,6 +59,7 @@ interface AdminDashboardProps {
   isSyncingSheets?: boolean;
   onSyncFromSupabase?: () => Promise<void>;
   isSyncingSupabase?: boolean;
+  onClearMockStudents?: () => void;
   initialTab?: AdminTab;
 }
 
@@ -87,6 +88,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   isSyncingSheets = false,
   onSyncFromSupabase,
   isSyncingSupabase = false,
+  onClearMockStudents,
   onImportStudents,
   initialTab = 'dashboard',
 }) => {
@@ -111,7 +113,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isAddingStudent, setIsAddingStudent] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
 
-  // Student Form Fields
+  // Student Form Fields (Directly matching public.students columns)
   const [formStudentCode, setFormStudentCode] = useState('');
   const [formStudentName, setFormStudentName] = useState('');
   const [formStudentNickname, setFormStudentNickname] = useState('');
@@ -121,6 +123,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [formStudentDorm, setFormStudentDorm] = useState('หอ A');
   const [formStudentCar, setFormStudentCar] = useState('CAR01');
   const [formStudentStop, setFormStudentStop] = useState('');
+  const [formStudentLat, setFormStudentLat] = useState('');
+  const [formStudentLng, setFormStudentLng] = useState('');
+  const [formStudentMapLink, setFormStudentMapLink] = useState('');
   const [formStudentParent, setFormStudentParent] = useState('');
   const [formStudentPhone, setFormStudentPhone] = useState('');
   const [formStudentStatus, setFormStudentStatus] = useState('ใช้งาน');
@@ -175,6 +180,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setFormStudentDorm('หอ A');
     setFormStudentCar(cars[0]?.carID || 'CAR01');
     setFormStudentStop('');
+    setFormStudentLat('');
+    setFormStudentLng('');
+    setFormStudentMapLink('');
     setFormStudentParent('');
     setFormStudentPhone('');
     setFormStudentStatus('ใช้งาน');
@@ -185,28 +193,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Open Edit Student
   const handleStartEditStudent = (st: Student) => {
     setEditingStudent(st);
-    setFormStudentCode(st.studentCode || st.id);
+    setFormStudentCode(st.studentCode || st.studentId || st.student_id || st.id);
     setFormStudentName(st.name);
     setFormStudentNickname(st.nickname || '');
     setFormStudentGrade(st.grade || 'ม.1');
     setFormStudentRoom(st.room || (st.className ? st.className.split('/')[1] : '1'));
-    setFormStudentNumber(st.number ? String(st.number) : '');
+    setFormStudentNumber(st.seat_number != null ? String(st.seat_number) : (st.seatNumber != null ? String(st.seatNumber) : (st.number ? String(st.number) : '')));
     setFormStudentDorm(st.dorm || 'หอ A');
-    setFormStudentCar(st.carID || st.busNumber || 'CAR01');
-    setFormStudentStop(st.pickup || st.busStopName || st.dormOrStop || '');
-    setFormStudentParent(st.parent || '');
-    setFormStudentPhone(st.parentPhone || '');
+    setFormStudentCar(st.car_id || st.carID || st.busNumber || 'CAR01');
+    setFormStudentStop(st.pickup_point || st.pickupPoint || st.pickup || st.busStopName || st.dormOrStop || '');
+    setFormStudentLat(st.latitude != null ? String(st.latitude) : '');
+    setFormStudentLng(st.longitude != null ? String(st.longitude) : '');
+    setFormStudentMapLink(st.map_link || st.mapLink || '');
+    setFormStudentParent(st.parent_name || st.parentName || st.parent || '');
+    setFormStudentPhone(st.parent_phone || st.parentPhone || '');
     setFormStudentStatus(st.status || 'ใช้งาน');
   };
 
-  // Save Student (Add / Edit)
+  // Save Student (Add / Edit) - Maps 100% to public.students
   const handleSubmitStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formStudentCode.trim() || !formStudentName.trim()) return;
 
+    const studentCode = formStudentCode.trim();
     const studentData: Student = {
-      id: formStudentCode.trim(),
-      studentCode: formStudentCode.trim(),
+      id: studentCode,
+      studentId: studentCode,
+      student_id: studentCode,
+      studentCode: studentCode,
+      qrCode: studentCode,
+      qr_code: studentCode,
       name: formStudentName.trim(),
       nickname: formStudentNickname.trim() || undefined,
       grade: formStudentGrade,
@@ -214,14 +230,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       className: `${formStudentGrade}/${formStudentRoom}`,
       classroom: `${formStudentGrade}/${formStudentRoom}`,
       number: formStudentNumber ? Number(formStudentNumber) : undefined,
+      seatNumber: formStudentNumber ? Number(formStudentNumber) : undefined,
+      seat_number: formStudentNumber ? Number(formStudentNumber) : undefined,
       dorm: formStudentDorm,
       carID: formStudentCar,
+      car_id: formStudentCar,
       busNumber: formStudentCar,
       dormOrStop: formStudentStop || formStudentDorm,
       busStopName: formStudentStop || formStudentDorm,
       pickup: formStudentStop || undefined,
+      pickupPoint: formStudentStop || undefined,
+      pickup_point: formStudentStop || undefined,
+      latitude: formStudentLat ? Number(formStudentLat) : undefined,
+      longitude: formStudentLng ? Number(formStudentLng) : undefined,
+      mapLink: formStudentMapLink.trim() || undefined,
+      map_link: formStudentMapLink.trim() || undefined,
       parent: formStudentParent || undefined,
+      parentName: formStudentParent || undefined,
+      parent_name: formStudentParent || undefined,
       parentPhone: formStudentPhone || '081-000-0000',
+      parent_phone: formStudentPhone || '081-000-0000',
       status: formStudentStatus,
       avatarColor: formStudentDorm.includes('B')
         ? 'bg-blue-500'
@@ -230,7 +258,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         : formStudentDorm.includes('D')
         ? 'bg-emerald-500'
         : 'bg-indigo-500',
-      qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(formStudentCode.trim())}`,
+      qrImage: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(studentCode)}`,
+      qr_image: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(studentCode)}`,
+      qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(studentCode)}`,
     };
 
     if (editingStudent) {
@@ -964,6 +994,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <span>ส่งออก Excel</span>
                 </button>
 
+                {/* Fetch from Supabase Button */}
+                {onSyncFromSupabase && (
+                  <button
+                    type="button"
+                    id="btnSyncSupabaseStudents"
+                    disabled={isSyncingSupabase}
+                    className="px-3 py-2 rounded-xl bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 border border-teal-500/30 font-semibold text-xs flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+                    onClick={() => onSyncFromSupabase()}
+                    title="ดึงข้อมูลล่าสุดจากตาราง public.students บน Supabase 100%"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-teal-400 ${isSyncingSupabase ? 'animate-spin' : ''}`} />
+                    <span>{isSyncingSupabase ? 'กำลังดึง...' : '⚡ ดึงจาก Supabase'}</span>
+                  </button>
+                )}
+
+                {/* Clear Mockdata Button */}
+                {onClearMockStudents && (
+                  <button
+                    type="button"
+                    id="btnClearMockStudents"
+                    className="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-rose-900/40 text-slate-400 hover:text-rose-300 border border-white/10 font-medium text-xs flex items-center gap-1.5 transition-all active:scale-95"
+                    onClick={() => {
+                      if (window.confirm('ต้องการยกเลิกและล้าง Mockdata นักเรียนทั้งหมดใช่หรือไม่? (ระบบจะใช้ข้อมูลจากตาราง public.students ใน Supabase 100%)')) {
+                        onClearMockStudents();
+                      }
+                    }}
+                    title="ยกเลิก Mockdata เพื่อใช้ข้อมูลจาก Supabase 100%"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-slate-400" />
+                    <span>ยกเลิก Mockdata</span>
+                  </button>
+                )}
+
                 {/* Add Single Student */}
                 <button
                   type="button"
@@ -987,7 +1050,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   แสดงผล <strong>{filteredStudents.length}</strong> จากทั้งหมด {students.length} คน
                 </span>
                 <span className="text-emerald-400 font-mono text-[11px]">
-                  ⚡ Realtime Supabase PostgreSQL
+                  ⚡ Realtime Supabase PostgreSQL (public.students 100%)
                 </span>
               </div>
 
@@ -995,13 +1058,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <table className="table w-full text-xs text-left" id="stuTable">
                   <thead className="sticky top-0 bg-slate-900 z-10">
                     <tr className="border-b border-white/10 text-slate-400">
-                      <th className="py-2.5 px-3">รหัส</th>
+                      <th className="py-2.5 px-3">รหัส (student_id)</th>
                       <th>ชื่อ-นามสกุล</th>
                       <th>ชื่อเล่น</th>
                       <th>ชั้น/ห้อง</th>
-                      <th>เลขที่</th>
+                      <th>เลขที่ (seat)</th>
                       <th>หอพัก</th>
-                      <th>สายรถ</th>
+                      <th>สายรถ (car_id)</th>
                       <th>จุดขึ้นรถ</th>
                       <th>ผู้ปกครอง/เบอร์</th>
                       <th>สถานะ</th>
@@ -1011,30 +1074,79 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <tbody>
                     {filteredStudents.length === 0 ? (
                       <tr>
-                        <td colSpan={11} className="text-center py-8 text-slate-500">
-                          ไม่พบข้อมูลนักเรียนที่ค้นหา
+                        <td colSpan={11} className="text-center py-12 px-4 text-slate-400">
+                          <div className="max-w-md mx-auto flex flex-col items-center gap-3">
+                            <div className="w-12 h-12 rounded-2xl bg-slate-800/80 border border-white/10 flex items-center justify-center text-teal-400">
+                              <Database className="w-6 h-6" />
+                            </div>
+                            <div className="space-y-1">
+                              <p className="font-semibold text-sm text-white">
+                                {students.length === 0
+                                  ? 'ยังไม่มีข้อมูลนักเรียนในตาราง public.students ของ Supabase'
+                                  : 'ไม่พบข้อมูลนักเรียนที่ค้นหา'}
+                              </p>
+                              <p className="text-xs text-slate-400">
+                                {students.length === 0
+                                  ? 'ระบบยกเลิก Mockdata แล้ว 100% สามารถเพิ่มนักเรียนใหม่เพื่อบันทึกลง Supabase หรือกดปุ่ม "ดึงจาก Supabase" ได้ทันที'
+                                  : 'ลองตรวจสอบคำค้นหา หรือเลือกตัวกรองสายรถ / หอพักอีกครั้ง'}
+                              </p>
+                            </div>
+                            {students.length === 0 && (
+                              <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    resetStudentForm();
+                                    setIsAddingStudent(true);
+                                  }}
+                                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-md transition-all active:scale-95"
+                                >
+                                  <UserPlus className="w-3.5 h-3.5" />
+                                  <span>+ เพิ่มนักเรียนคนแรก</span>
+                                </button>
+                                {onSyncFromSupabase && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onSyncFromSupabase()}
+                                    className="px-4 py-2 rounded-xl bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 border border-teal-500/40 font-semibold text-xs flex items-center gap-1.5 transition-all active:scale-95"
+                                  >
+                                    <RefreshCw className={`w-3.5 h-3.5 text-teal-400 ${isSyncingSupabase ? 'animate-spin' : ''}`} />
+                                    <span>⚡ ดึงข้อมูลจาก Supabase</span>
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ) : (
                       filteredStudents.map((st) => (
                         <tr
-                          key={st.id}
+                          key={st.id || st.studentCode || st.student_id}
                           className="border-b border-white/5 hover:bg-white/5 transition-colors text-slate-200"
                         >
-                          <td className="py-2.5 px-3 font-mono font-bold text-amber-400">{st.studentCode}</td>
+                          <td className="py-2.5 px-3 font-mono font-bold text-amber-400">
+                            {st.studentCode || st.studentId || st.student_id || st.id}
+                          </td>
                           <td className="font-semibold text-white">{st.name}</td>
                           <td className="text-slate-300">{st.nickname || '-'}</td>
-                          <td>{st.className || st.grade}</td>
-                          <td className="font-mono text-slate-400">{st.number || '-'}</td>
+                          <td>{st.className || (st.grade ? `${st.grade}${st.room ? '/' + st.room : ''}` : '-')}</td>
+                          <td className="font-mono text-slate-400">
+                            {st.seat_number != null ? st.seat_number : (st.seatNumber != null ? st.seatNumber : (st.number || '-'))}
+                          </td>
                           <td>
                             <span className="px-2 py-0.5 rounded-full text-[10px] bg-slate-800 text-slate-300 border border-white/5">
                               {st.dorm || '-'}
                             </span>
                           </td>
-                          <td className="text-emerald-400 font-medium">{st.carID || st.busNumber}</td>
-                          <td className="text-slate-400 truncate max-w-[120px]">{st.pickup || st.busStopName || '-'}</td>
+                          <td className="text-emerald-400 font-medium">
+                            {st.car_id || st.carID || st.busNumber || '-'}
+                          </td>
+                          <td className="text-slate-400 truncate max-w-[120px]">
+                            {st.pickup_point || st.pickupPoint || st.pickup || st.busStopName || st.dormOrStop || '-'}
+                          </td>
                           <td className="font-mono text-slate-300 text-[11px]">
-                            {st.parentPhone || '-'}
+                            {st.parent_phone || st.parentPhone || st.parent || '-'}
                           </td>
                           <td>
                             <span
@@ -1070,8 +1182,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 onClick={() =>
                                   setDeleteConfirmItem({
                                     type: 'student',
-                                    id: st.id,
-                                    name: `${st.name} (${st.studentCode})`,
+                                    id: st.student_id || st.studentId || st.studentCode || st.id,
+                                    name: `${st.name} (${st.studentCode || st.student_id || st.id})`,
                                   })
                                 }
                                 className="p-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900/70 text-rose-300 text-[10px] transition-colors"
@@ -1799,6 +1911,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   placeholder="เช่น หน้าหอพัก A หรือ ประตู 1 โรงเรียน"
                   value={formStudentStop}
                   onChange={(e) => setFormStudentStop(e.target.value)}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">ละติจูด (latitude)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-xs"
+                    placeholder="เช่น 13.7563309"
+                    value={formStudentLat}
+                    onChange={(e) => setFormStudentLat(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">ลองจิจูด (longitude)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-xs"
+                    placeholder="เช่น 100.5017651"
+                    value={formStudentLng}
+                    onChange={(e) => setFormStudentLng(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">ลิงก์แผนที่ (map_link)</label>
+                <input
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs font-mono"
+                  placeholder="https://maps.google.com/..."
+                  value={formStudentMapLink}
+                  onChange={(e) => setFormStudentMapLink(e.target.value)}
                 />
               </div>
 

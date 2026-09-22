@@ -8,7 +8,7 @@ import { AdminLoginModal } from './components/AdminLoginModal';
 import { AdminDashboard } from './components/AdminDashboard';
 import { QuickSupabaseModal } from './components/QuickSupabaseModal';
 import { TestScanModal } from './components/TestScanModal';
-import { SUPABASE_STUDENTS, SUPABASE_CARS, SUPABASE_SCANS } from './data/supabaseSeed';
+import { SUPABASE_CARS, SUPABASE_SCANS } from './data/supabaseSeed';
 import { formatThaiDateTime } from './data/mockData';
 import { speakFastSuccess, triggerVibration } from './utils/audio';
 import { getCurrentCoordinates } from './utils/geo';
@@ -66,18 +66,29 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState<string>('09:41');
   const [toastMsg, setToastMsg] = useState<string>('');
 
-  // Primary Data States (Initialized from Supabase Seed / LocalStorage)
+  // Primary Data States (Initialized from Supabase / LocalStorage - Mockdata Cancelled 100%)
   const [students, setStudents] = useState<Student[]>(() => {
     const saved = localStorage.getItem('bus_students');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) {
+          // If stored students are old mockdata (e.g. 300 mock students), clear it out
+          if (
+            parsed.length === 300 &&
+            parsed[0]?.studentCode === 'STD0001' &&
+            parsed[0]?.name?.includes('พฤกษ์ชาติ')
+          ) {
+            localStorage.removeItem('bus_students');
+            return [];
+          }
+          return parsed;
+        }
       } catch {
-        return SUPABASE_STUDENTS;
+        return [];
       }
     }
-    return SUPABASE_STUDENTS;
+    return [];
   });
 
   const [cars, setCars] = useState<Car[]>(() => {
@@ -215,11 +226,9 @@ export default function App() {
         const successItems: string[] = [];
 
         if (stuRes.success && stuRes.data) {
-          if (stuRes.data.length > 0) {
-            setStudents(stuRes.data);
-            localStorage.setItem('bus_students', JSON.stringify(stuRes.data));
-            successItems.push(`นักเรียน ${stuRes.data.length} คน`);
-          }
+          setStudents(stuRes.data);
+          localStorage.setItem('bus_students', JSON.stringify(stuRes.data));
+          successItems.push(`นักเรียน ${stuRes.data.length} คน`);
         }
 
         if (carRes.success && carRes.data) {
@@ -280,8 +289,9 @@ export default function App() {
         },
         onStudentChange: () => {
           fetchStudentsFromSupabase().then((res) => {
-            if (res.success && res.data && res.data.length > 0) {
+            if (res.success && res.data) {
               setStudents(res.data);
+              localStorage.setItem('bus_students', JSON.stringify(res.data));
             }
           });
         },
@@ -628,14 +638,13 @@ export default function App() {
 
   // Handle Simulate Scan
   const handleSimulateScan = useCallback(() => {
-    const fallbackStudent: Student = students[0] || SUPABASE_STUDENTS[0];
-    const picked = students.length > 0
-      ? students[Math.floor(Math.random() * students.length)]
-      : fallbackStudent;
-    const targetStudent: Student = picked || fallbackStudent;
-
-    registerScan(targetStudent, 'simulated');
-  }, [students, registerScan]);
+    if (students.length === 0) {
+      showToast('⚠️ ยังไม่มีรายชื่อนักเรียนในระบบ กรุณาเพิ่มนักเรียนหรือดึงข้อมูลจาก Supabase ก่อน');
+      return;
+    }
+    const picked = students[Math.floor(Math.random() * students.length)];
+    registerScan(picked, 'simulated');
+  }, [students, registerScan, showToast]);
 
   // Handle Dedicated Test Scan for any student
   const handleTestScanStudent = useCallback(
@@ -704,6 +713,12 @@ export default function App() {
     } else {
       showToast('ลบนักเรียนเรียบร้อย');
     }
+  };
+
+  const handleClearMockStudents = () => {
+    localStorage.removeItem('bus_students');
+    setStudents([]);
+    showToast('ล้างข้อมูล Mockdata นักเรียนเรียบร้อย (ระบบใช้ Supabase 100%)');
   };
 
   const handleImportStudents = async (importedStudents: Student[]) => {
@@ -907,6 +922,7 @@ export default function App() {
             isSyncingSheets={isSyncingSheets}
             onSyncFromSupabase={() => refreshFromSupabase(false)}
             isSyncingSupabase={isSyncingSupabase}
+            onClearMockStudents={handleClearMockStudents}
           />
         )}
       </div>

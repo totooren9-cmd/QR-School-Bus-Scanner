@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Student, Car, ScanRecord } from '../types';
-import { SUPABASE_STUDENTS, SUPABASE_CARS, SUPABASE_SCANS } from '../data/supabaseSeed';
+import { SUPABASE_CARS, SUPABASE_SCANS } from '../data/supabaseSeed';
 
 // LocalStorage Keys for persistent client-side configuration
 const STORAGE_KEY_URL = 'qr_bus_supabase_url';
@@ -183,9 +183,10 @@ export async function testSupabaseConnection(): Promise<{
   }
 }
 
-// Helper to map DB row to Student model
+// Helper to map DB row to Student model matching public.students table
 function mapStudentRow(s: Record<string, unknown>): Student {
-  const studentId = String(s.student_id || '');
+  const studentId = String(s.student_id || s.id || '').trim();
+  const qrCode = String(s.qr_code || studentId).trim();
   const grade = String(s.grade || 'ม.1');
   const room = String(s.room || '1');
   const dorm = String(s.dorm || 'หอ A');
@@ -193,7 +194,13 @@ function mapStudentRow(s: Record<string, unknown>): Student {
   const nickname = s.nickname ? String(s.nickname) : undefined;
   const parentName = s.parent_name ? String(s.parent_name) : undefined;
   const pickupPoint = s.pickup_point ? String(s.pickup_point) : undefined;
-  const seatNumber = s.seat_number ? Number(s.seat_number) : undefined;
+  const seatNumber = s.seat_number != null ? Number(s.seat_number) : undefined;
+  const latitude = s.latitude != null ? Number(s.latitude) : null;
+  const longitude = s.longitude != null ? Number(s.longitude) : null;
+  const mapLink = s.map_link ? String(s.map_link) : undefined;
+  const qrImage = s.qr_image
+    ? String(s.qr_image)
+    : `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrCode || studentId)}`;
 
   let avatarColor = 'bg-indigo-500';
   if (dorm.includes('B')) avatarColor = 'bg-blue-500';
@@ -203,7 +210,7 @@ function mapStudentRow(s: Record<string, unknown>): Student {
 
   return {
     id: studentId,
-    studentCode: studentId,
+    studentCode: qrCode || studentId,
     name: String(s.name || ''),
     nickname,
     grade,
@@ -211,44 +218,57 @@ function mapStudentRow(s: Record<string, unknown>): Student {
     className: `${grade}/${room}`,
     room,
     number: seatNumber,
+    seatNumber,
     dorm,
     carID: carId,
+    car_id: carId,
     plate: '1กข 1234',
     busNumber: carId,
     dormOrStop: pickupPoint || dorm,
     busStopName: pickupPoint || dorm,
     pickup: pickupPoint,
+    pickupPoint,
     parent: parentName,
+    parentName,
     parentPhone: String(s.parent_phone || '0810000000'),
+    parent_phone: String(s.parent_phone || '0810000000'),
     status: String(s.status || 'ใช้งาน'),
+    latitude,
+    longitude,
+    mapLink,
+    map_link: mapLink,
     avatarColor,
-    qrUrl: String(
-      s.qr_image ||
-        `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(studentId)}`
-    ),
+    qrUrl: qrImage,
+    qr_image: qrImage,
+    qr_code: qrCode,
+    created_at: s.created_at ? String(s.created_at) : undefined,
+    updated_at: s.updated_at ? String(s.updated_at) : undefined,
   };
 }
 
 // ==========================================
-// 1. STUDENTS CRUD (SELECT, INSERT, UPDATE, DELETE)
+// 1. STUDENTS CRUD (SELECT, INSERT, UPDATE, DELETE) 100% Supabase
 // ==========================================
 
-// SELECT: Fetch Students from Supabase
+// SELECT: Fetch Students from Supabase (No mock data fallback)
 export async function fetchStudentsFromSupabase(): Promise<{ success: boolean; data: Student[]; error?: string }> {
   const client = getSupabaseClient();
   if (!client) {
-    return { success: false, data: SUPABASE_STUDENTS, error: 'No client configured' };
+    return { success: false, data: [], error: 'ยังไม่ได้เชื่อมต่อ Supabase' };
   }
 
   try {
     const { data, error } = await client
       .from('students')
       .select('*')
+      .order('grade', { ascending: true })
+      .order('room', { ascending: true })
+      .order('seat_number', { ascending: true })
       .order('student_id', { ascending: true });
 
     if (error) {
       console.warn('Supabase fetch students error:', error);
-      return { success: false, data: SUPABASE_STUDENTS, error: error.message };
+      return { success: false, data: [], error: error.message };
     }
 
     if (!data || data.length === 0) {
@@ -260,47 +280,57 @@ export async function fetchStudentsFromSupabase(): Promise<{ success: boolean; d
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('Failed to fetch students from Supabase:', err);
-    return { success: false, data: SUPABASE_STUDENTS, error: msg };
+    return { success: false, data: [], error: msg };
   }
 }
 
-// UPSERT: Add or Update Student in Supabase (Guaranteed save for every scanned name)
+// UPSERT: Add or Update Student in Supabase (public.students)
 export async function upsertStudentToSupabase(
   student: Student
 ): Promise<{ success: boolean; error?: string; data?: Student }> {
   const client = getSupabaseClient();
   if (!client) {
-    return { success: false, error: 'ยังไม่ได้เชื่อมต่อ Supabase (บันทึกในระบบเรียบร้อย)' };
+    return { success: false, error: 'ยังไม่ได้เชื่อมต่อ Supabase' };
   }
 
   try {
-    const studentId = (student.studentCode || student.id || `STD${Date.now()}`).trim();
+    const studentId = (student.id || student.studentCode || `STD${Date.now()}`).trim();
+    const qrCode = (student.studentCode || student.id || studentId).trim();
     const grade = student.grade || 'ม.1';
     let room = student.room || '1';
     if (student.className && student.className.includes('/')) {
       room = student.className.split('/')[1] || room;
     }
 
-    const carId = (student.carID || student.busNumber || 'CAR01').trim();
-    await ensureCarExistsInSupabase(carId, student.plate || '1กข 1234');
+    const carId = (student.carID || student.car_id || student.busNumber || 'CAR01').trim();
+    if (carId) {
+      await ensureCarExistsInSupabase(carId, student.plate || '1กข 1234');
+    }
+
+    const qrImage =
+      student.qrUrl ||
+      student.qr_image ||
+      `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrCode)}`;
 
     const row: Record<string, unknown> = {
       student_id: studentId,
-      qr_code: studentId,
+      qr_code: qrCode,
       name: (student.name || 'นักเรียน').trim(),
       nickname: student.nickname?.trim() || null,
       grade: grade,
       room: room,
-      seat_number: student.number ? Number(student.number) : null,
+      seat_number: student.number ? Number(student.number) : (student.seatNumber ?? null),
       dorm: student.dorm || student.dormOrStop || 'หอ A',
-      car_id: carId,
-      pickup_point: student.pickup || student.busStopName || student.dormOrStop || 'จุดรับส่งหน้าโรงเรียน',
-      parent_name: student.parent || null,
-      parent_phone: student.parentPhone || '0810000000',
+      car_id: carId || null,
+      pickup_point: student.pickup || student.pickupPoint || student.pickup_point || student.busStopName || student.dormOrStop || null,
+      latitude: typeof student.latitude === 'number' ? student.latitude : null,
+      longitude: typeof student.longitude === 'number' ? student.longitude : null,
+      map_link: student.mapLink || student.map_link || null,
+      parent_name: student.parent || student.parentName || student.parent_name || null,
+      parent_phone: student.parentPhone || student.parent_phone || '0810000000',
       status: student.status || 'ใช้งาน',
-      qr_image:
-        student.qrUrl ||
-        `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(studentId)}`,
+      qr_image: qrImage,
+      updated_at: new Date().toISOString(),
     };
 
     let { data, error } = await client
@@ -308,32 +338,6 @@ export async function upsertStudentToSupabase(
       .upsert(row, { onConflict: 'student_id' })
       .select()
       .maybeSingle();
-
-    // Column pruning if custom Supabase table lacks certain fields
-    let attempts = 0;
-    while (
-      error &&
-      attempts < 5 &&
-      (error.code === '42703' ||
-        error.message?.includes('column') ||
-        error.message?.includes('does not exist'))
-    ) {
-      attempts++;
-      delete row.nickname;
-      delete row.parent_name;
-      delete row.pickup_point;
-      delete row.qr_image;
-      delete row.seat_number;
-      delete row.room;
-      delete row.dorm;
-      const retry = await client
-        .from('students')
-        .upsert(row, { onConflict: 'student_id' })
-        .select()
-        .maybeSingle();
-      error = retry.error;
-      data = retry.data;
-    }
 
     if (error) {
       console.warn('Upsert student warning in Supabase:', error.message);
@@ -348,12 +352,76 @@ export async function upsertStudentToSupabase(
   }
 }
 
-// INSERT: Add Student to Supabase
+// INSERT: Add Student to Supabase (public.students)
 export async function insertStudentToSupabase(student: Student): Promise<{ success: boolean; error?: string; data?: Student }> {
-  return upsertStudentToSupabase(student);
+  const client = getSupabaseClient();
+  if (!client) {
+    return { success: false, error: 'ยังไม่ได้เชื่อมต่อ Supabase' };
+  }
+
+  try {
+    const studentId = (student.id || student.studentCode || `STD${Date.now()}`).trim();
+    const qrCode = (student.studentCode || student.id || studentId).trim();
+    const grade = student.grade || 'ม.1';
+    let room = student.room || '1';
+    if (student.className && student.className.includes('/')) {
+      room = student.className.split('/')[1] || room;
+    }
+
+    const carId = (student.carID || student.car_id || student.busNumber || 'CAR01').trim();
+    if (carId) {
+      await ensureCarExistsInSupabase(carId, student.plate || '1กข 1234');
+    }
+
+    const qrImage =
+      student.qrUrl ||
+      student.qr_image ||
+      `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrCode)}`;
+
+    const row = {
+      student_id: studentId,
+      qr_code: qrCode,
+      name: (student.name || '').trim(),
+      nickname: student.nickname?.trim() || null,
+      grade: grade,
+      room: room,
+      seat_number: student.number ? Number(student.number) : (student.seatNumber ?? null),
+      dorm: student.dorm || student.dormOrStop || 'หอ A',
+      car_id: carId || null,
+      pickup_point: student.pickup || student.pickupPoint || student.pickup_point || student.busStopName || student.dormOrStop || null,
+      latitude: typeof student.latitude === 'number' ? student.latitude : null,
+      longitude: typeof student.longitude === 'number' ? student.longitude : null,
+      map_link: student.mapLink || student.map_link || null,
+      parent_name: student.parent || student.parentName || student.parent_name || null,
+      parent_phone: student.parentPhone || student.parent_phone || '0810000000',
+      status: student.status || 'ใช้งาน',
+      qr_image: qrImage,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await client
+      .from('students')
+      .insert(row)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      if (error.code === '23505') {
+        return updateStudentInSupabase(student);
+      }
+      console.warn('Insert student error in Supabase:', error.message);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, data: data ? mapStudentRow(data) : student };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: msg };
+  }
 }
 
-// UPDATE: Edit Student in Supabase
+// UPDATE: Edit Student in Supabase (public.students)
 export async function updateStudentInSupabase(student: Student): Promise<{ success: boolean; error?: string; data?: Student }> {
   const client = getSupabaseClient();
   if (!client) {
@@ -361,25 +429,41 @@ export async function updateStudentInSupabase(student: Student): Promise<{ succe
   }
 
   try {
-    const studentId = (student.studentCode || student.id).trim();
+    const studentId = (student.id || student.studentCode).trim();
+    const qrCode = (student.studentCode || student.id || studentId).trim();
     const grade = student.grade || 'ม.1';
     let room = student.room || '1';
     if (student.className && student.className.includes('/')) {
       room = student.className.split('/')[1] || room;
     }
 
+    const carId = (student.carID || student.car_id || student.busNumber || 'CAR01').trim();
+    if (carId) {
+      await ensureCarExistsInSupabase(carId, student.plate || '1กข 1234');
+    }
+
+    const qrImage =
+      student.qrUrl ||
+      student.qr_image ||
+      `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrCode)}`;
+
     const row = {
-      name: student.name.trim(),
+      qr_code: qrCode,
+      name: (student.name || '').trim(),
       nickname: student.nickname?.trim() || null,
       grade: grade,
       room: room,
-      seat_number: student.number ? Number(student.number) : null,
+      seat_number: student.number ? Number(student.number) : (student.seatNumber ?? null),
       dorm: student.dorm || student.dormOrStop || 'หอ A',
-      car_id: student.carID || student.busNumber || 'CAR01',
-      pickup_point: student.pickup || student.busStopName || student.dormOrStop || null,
-      parent_name: student.parent || null,
-      parent_phone: student.parentPhone || '0810000000',
+      car_id: carId || null,
+      pickup_point: student.pickup || student.pickupPoint || student.pickup_point || student.busStopName || student.dormOrStop || null,
+      latitude: typeof student.latitude === 'number' ? student.latitude : null,
+      longitude: typeof student.longitude === 'number' ? student.longitude : null,
+      map_link: student.mapLink || student.map_link || null,
+      parent_name: student.parent || student.parentName || student.parent_name || null,
+      parent_phone: student.parentPhone || student.parent_phone || '0810000000',
       status: student.status || 'ใช้งาน',
+      qr_image: qrImage,
       updated_at: new Date().toISOString(),
     };
 
@@ -388,10 +472,10 @@ export async function updateStudentInSupabase(student: Student): Promise<{ succe
       .update(row)
       .eq('student_id', studentId)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) {
-      console.error('Update student error:', error);
+      console.error('Update student error in Supabase:', error);
       return { success: false, error: error.message };
     }
 
@@ -402,7 +486,7 @@ export async function updateStudentInSupabase(student: Student): Promise<{ succe
   }
 }
 
-// DELETE: Delete Student from Supabase
+// DELETE: Delete Student from Supabase (public.students)
 export async function deleteStudentFromSupabase(studentId: string): Promise<{ success: boolean; error?: string }> {
   const client = getSupabaseClient();
   if (!client) {
@@ -410,19 +494,10 @@ export async function deleteStudentFromSupabase(studentId: string): Promise<{ su
   }
 
   try {
-    const { error } = await client.from('students').delete().eq('student_id', studentId.trim());
-    if (
-      error &&
-      (error.code === 'PGRST125' ||
-        error.code === '42P01' ||
-        error.message?.includes('Invalid path') ||
-        error.message?.includes('does not exist'))
-    ) {
-      console.info('Table students not found in Supabase during delete; local deletion completed.');
-      return { success: true };
-    }
+    const cleanId = studentId.trim();
+    const { error } = await client.from('students').delete().eq('student_id', cleanId);
     if (error) {
-      console.warn('Delete student warning:', error.message);
+      console.warn('Delete student warning in Supabase:', error.message);
       return { success: false, error: error.message };
     }
     return { success: true };

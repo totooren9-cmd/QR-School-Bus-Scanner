@@ -1,10 +1,10 @@
 import { Student, ScanRecord, Car } from '../types';
-import { SUPABASE_STUDENTS, SUPABASE_CARS, SUPABASE_SCANS } from './supabaseSeed';
+import { SUPABASE_CARS, SUPABASE_SCANS } from './supabaseSeed';
 
-// 300 Real Students directly from Supabase Seed (STD0001 - STD0300)
-export const INITIAL_STUDENTS: Student[] = SUPABASE_STUDENTS;
+// 100% Supabase Students - No Mock Data (Students loaded from public.students in Supabase)
+export const INITIAL_STUDENTS: Student[] = [];
 
-// 5 Real School Cars (CAR01 - CAR05)
+// 5 School Cars (CAR01 - CAR05)
 export const INITIAL_CARS: Car[] = SUPABASE_CARS;
 
 // Real historical scans directly from database
