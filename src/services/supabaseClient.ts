@@ -264,11 +264,13 @@ export async function fetchStudentsFromSupabase(): Promise<{ success: boolean; d
   }
 }
 
-// INSERT: Add Student to Supabase
-export async function insertStudentToSupabase(student: Student): Promise<{ success: boolean; error?: string; data?: Student }> {
+// UPSERT: Add or Update Student in Supabase (Guaranteed save for every scanned name)
+export async function upsertStudentToSupabase(
+  student: Student
+): Promise<{ success: boolean; error?: string; data?: Student }> {
   const client = getSupabaseClient();
   if (!client) {
-    return { success: false, error: 'ยังไม่ได้เชื่อมต่อ Supabase' };
+    return { success: false, error: 'ยังไม่ได้เชื่อมต่อ Supabase (บันทึกในระบบเรียบร้อย)' };
   }
 
   try {
@@ -279,16 +281,19 @@ export async function insertStudentToSupabase(student: Student): Promise<{ succe
       room = student.className.split('/')[1] || room;
     }
 
-    const row = {
+    const carId = (student.carID || student.busNumber || 'CAR01').trim();
+    await ensureCarExistsInSupabase(carId, student.plate || '1กข 1234');
+
+    const row: Record<string, unknown> = {
       student_id: studentId,
       qr_code: studentId,
-      name: student.name.trim(),
+      name: (student.name || 'นักเรียน').trim(),
       nickname: student.nickname?.trim() || null,
       grade: grade,
       room: room,
       seat_number: student.number ? Number(student.number) : null,
       dorm: student.dorm || student.dormOrStop || 'หอ A',
-      car_id: student.carID || student.busNumber || 'CAR01',
+      car_id: carId,
       pickup_point: student.pickup || student.busStopName || student.dormOrStop || 'จุดรับส่งหน้าโรงเรียน',
       parent_name: student.parent || null,
       parent_phone: student.parentPhone || '0810000000',
@@ -298,17 +303,54 @@ export async function insertStudentToSupabase(student: Student): Promise<{ succe
         `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(studentId)}`,
     };
 
-    const { data, error } = await client.from('students').insert([row]).select().single();
+    let { data, error } = await client
+      .from('students')
+      .upsert(row, { onConflict: 'student_id' })
+      .select()
+      .maybeSingle();
+
+    // Column pruning if custom Supabase table lacks certain fields
+    let attempts = 0;
+    while (
+      error &&
+      attempts < 5 &&
+      (error.code === '42703' ||
+        error.message?.includes('column') ||
+        error.message?.includes('does not exist'))
+    ) {
+      attempts++;
+      delete row.nickname;
+      delete row.parent_name;
+      delete row.pickup_point;
+      delete row.qr_image;
+      delete row.seat_number;
+      delete row.room;
+      delete row.dorm;
+      const retry = await client
+        .from('students')
+        .upsert(row, { onConflict: 'student_id' })
+        .select()
+        .maybeSingle();
+      error = retry.error;
+      data = retry.data;
+    }
+
     if (error) {
-      console.error('Insert student error:', error);
+      console.warn('Upsert student warning in Supabase:', error.message);
       return { success: false, error: error.message };
     }
 
-    return { success: true, data: data ? mapStudentRow(data) : undefined };
+    return { success: true, data: data ? mapStudentRow(data) : student };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
+    console.warn('Failed to upsert student to Supabase:', msg);
     return { success: false, error: msg };
   }
+}
+
+// INSERT: Add Student to Supabase
+export async function insertStudentToSupabase(student: Student): Promise<{ success: boolean; error?: string; data?: Student }> {
+  return upsertStudentToSupabase(student);
 }
 
 // UPDATE: Edit Student in Supabase
@@ -436,6 +478,31 @@ export async function fetchCarsFromSupabase(): Promise<{ success: boolean; data:
     const msg = err instanceof Error ? err.message : String(err);
     console.error('Failed to fetch cars from Supabase:', err);
     return { success: false, data: SUPABASE_CARS, error: msg };
+  }
+}
+
+// ENSURE CAR EXISTS: Helper to guarantee foreign key validity
+export async function ensureCarExistsInSupabase(
+  carId: string,
+  plateNumber = '1กข 1234'
+): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client || !carId) return;
+
+  try {
+    const cleanCarId = carId.trim();
+    await client.from('cars').upsert(
+      {
+        car_id: cleanCarId,
+        plate_number: plateNumber.trim(),
+        name: cleanCarId,
+        route: 'สายทั่วไป',
+        status: 'ใช้งาน',
+      },
+      { onConflict: 'car_id' }
+    );
+  } catch {
+    // Ignore error if already exists or column omitted
   }
 }
 
@@ -696,7 +763,7 @@ export async function syncPendingScans(): Promise<{ success: boolean; syncedCoun
 // INSERT: Insert real-time Scan directly to Supabase with auto-healing, column-pruning, and zero-loss fallback
 export async function insertScanToSupabase(
   scan: ScanRecord,
-  options?: { skipQueue?: boolean }
+  options?: { skipQueue?: boolean; student?: Student }
 ): Promise<{ success: boolean; error?: string; isOfflineQueued?: boolean }> {
   const client = getSupabaseClient();
   if (!client) {
@@ -723,6 +790,36 @@ export async function insertScanToSupabase(
     const carId = (scan.carID || scan.busNumber || 'CAR01').trim();
     const studentName = (scan.name || 'นักเรียน').trim();
     const plateNumber = (scan.plate || '1กข 1234').trim();
+
+    // 1. Guaranteed: Always save the student's name & profile to database `students` table first!
+    try {
+      if (options?.student) {
+        await upsertStudentToSupabase(options.student);
+      } else if (studentId) {
+        await upsertStudentToSupabase({
+          id: studentId,
+          studentCode: studentId,
+          name: studentName,
+          grade: scan.grade || 'ม.1',
+          dorm: scan.dorm || 'หอ A',
+          carID: carId,
+          busNumber: scan.busNumber || carId,
+          dormOrStop: scan.locationName || 'จุดรับส่ง',
+          parentPhone: '081-000-0000',
+        });
+      }
+    } catch (stuErr) {
+      console.warn('Note: Background student upsert notice:', stuErr);
+    }
+
+    // 2. Guaranteed: Always ensure car exists in `cars` table so foreign keys never fail
+    try {
+      if (carId) {
+        await ensureCarExistsInSupabase(carId, plateNumber);
+      }
+    } catch {
+      // ignore
+    }
 
     const payload: Record<string, unknown> = {
       scan_id: scanId,

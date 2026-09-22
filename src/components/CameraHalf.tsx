@@ -6,6 +6,7 @@ import { playSuccessChime, triggerVibration } from '../utils/audio';
 interface CameraHalfProps {
   onScanSuccess: (studentData: { studentCode?: string; rawText: string; source: 'camera' | 'upload' | 'simulated' }) => void;
   onSimulateScan: () => void;
+  onOpenTestScanModal?: () => void;
   activeScan: ScanRecord | null;
   totalScans: number;
   isSupabaseReady?: boolean;
@@ -21,6 +22,7 @@ interface FocusRing {
 export const CameraHalf: React.FC<CameraHalfProps> = ({
   onScanSuccess,
   onSimulateScan,
+  onOpenTestScanModal,
   activeScan,
   totalScans,
   isSupabaseReady = false,
@@ -34,6 +36,7 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [torchOn, setTorchOn] = useState<boolean>(false);
   const [torchError, setTorchError] = useState<boolean>(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const [isScanningCooldown, setIsScanningCooldown] = useState<boolean>(false);
   const [isJustScanned, setIsJustScanned] = useState<boolean>(false);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
@@ -236,9 +239,15 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
       }
 
       setIsCameraActive(true);
-    } catch (err) {
+      setCameraError(null);
+    } catch (err: unknown) {
       console.warn('Camera start error:', err);
-      alert('ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตสิทธิ์การเข้าถึงกล้อง หรือใช้ปุ่ม "คลังรูป" / "จำลองสแกน"');
+      const msg = err instanceof Error ? err.message : String(err);
+      setCameraError(
+        msg.includes('Permission') || msg.includes('NotAllowed')
+          ? 'อุปกรณ์ยังไม่อนุญาตให้เข้าถึงกล้อง (สามารถใช้ปุ่ม "ทดสอบสแกน" หรือ "คลังรูป" ด้านล่างได้ทันที)'
+          : 'ไม่สามารถเปิดกล้องได้ในเบราว์เซอร์นี้ (ใช้ปุ่ม "ทดสอบสแกน" เพื่อทดสอบบันทึกได้ 100%)'
+      );
     }
   };
 
@@ -468,16 +477,34 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
             <div className="cover-icon">📷</div>
             <h2 className="text-xl font-bold text-white">พร้อมสแกน QR Code</h2>
             <p className="text-slate-300 text-xs mt-1">
-              ระบบโฟกัสตรงกึ่งกลาง & บันทึก Supabase Real-time 100%
+              ระบบโฟกัสตรงกึ่งกลาง & บันทึกฐานข้อมูลทุกๆ รายชื่อ Real-time
             </p>
-            <button
-              className="btn-ios-primary mt-4"
-              id="btnStartScan"
-              onClick={startScanner}
-              type="button"
-            >
-              <span>เปิดกล้องสแกนทันที</span>
-            </button>
+
+            {cameraError && (
+              <div className="mt-3 px-3 py-2 bg-amber-500/15 border border-amber-500/30 rounded-xl text-amber-200 text-xs max-w-sm text-center">
+                {cameraError}
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row items-center gap-2 mt-4 w-full max-w-xs">
+              <button
+                className="btn-ios-primary w-full flex items-center justify-center gap-2"
+                id="btnStartScan"
+                onClick={startScanner}
+                type="button"
+              >
+                <span>เปิดกล้องสแกน</span>
+              </button>
+
+              <button
+                className="w-full px-4 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl shadow-lg transition-all active:scale-[0.98] text-xs flex items-center justify-center gap-1.5"
+                id="btnOpenTestScanFromCover"
+                onClick={onOpenTestScanModal || onSimulateScan}
+                type="button"
+              >
+                <span>🧪 ทดสอบสแกนรายชื่อ</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -509,10 +536,10 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
           </button>
 
           <button
-            className="cam-btn"
-            onClick={onSimulateScan}
+            className="cam-btn bg-amber-500/20 text-amber-300 border-amber-500/40"
+            onClick={onOpenTestScanModal || onSimulateScan}
             type="button"
-            title="จำลองสแกน"
+            title="ทดสอบสแกน & บันทึกลงฐานข้อมูลทุกๆ รายชื่อ"
           >
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />

@@ -645,6 +645,12 @@ body {
   border-color: rgba(245, 158, 11, 0.3);
 }
 
+.icon-circle.report {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
 .search-bar {
   padding: 4px 18px 8px 18px;
   flex-shrink: 0;

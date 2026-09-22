@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Calendar, Clock, MapPin, LogIn, LogOut } from 'lucide-react';
-import { ScanRecord } from '../types';
+import { ScanRecord, Car, Student } from '../types';
+import { DailySummaryModal } from './DailySummaryModal';
 
 interface ScanListHalfProps {
   scans: ScanRecord[];
@@ -9,6 +10,9 @@ interface ScanListHalfProps {
   onOpenAdmin: () => void;
   soundEnabled: boolean;
   onToggleSound: () => void;
+  cars?: Car[];
+  students?: Student[];
+  onOpenDailyReport?: () => void;
 }
 
 export const ScanListHalf: React.FC<ScanListHalfProps> = ({
@@ -18,10 +22,14 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
   onOpenAdmin,
   soundEnabled,
   onToggleSound,
+  cars = [],
+  students = [],
+  onOpenDailyReport,
 }) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showConfirmClear, setShowConfirmClear] = useState(false);
+  const [showDailyReport, setShowDailyReport] = useState(false);
 
   // Filtered scans
   const filteredScans = useMemo(() => {
@@ -70,6 +78,18 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
             title="ค้นหา"
           >
             🔎
+          </button>
+          <button
+            className="icon-circle report"
+            id="btnDailyReport"
+            type="button"
+            onClick={() => {
+              if (onOpenDailyReport) onOpenDailyReport();
+              setShowDailyReport(true);
+            }}
+            title="รายงานสรุปประจำวัน (ยอดขึ้นรถ/ลงรถ)"
+          >
+            📊
           </button>
           <button
             className="icon-circle"
@@ -280,6 +300,14 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
           </div>
         </div>
       )}
+      {/* Daily Summary Report Modal */}
+      <DailySummaryModal
+        isOpen={showDailyReport}
+        onClose={() => setShowDailyReport(false)}
+        scans={scans}
+        cars={cars}
+        students={students}
+      />
     </div>
   );
 };

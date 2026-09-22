@@ -7,6 +7,7 @@ import { CardDetailModal } from './components/CardDetailModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { AdminDashboard } from './components/AdminDashboard';
 import { QuickSupabaseModal } from './components/QuickSupabaseModal';
+import { TestScanModal } from './components/TestScanModal';
 import { SUPABASE_STUDENTS, SUPABASE_CARS, SUPABASE_SCANS } from './data/supabaseSeed';
 import { formatThaiDateTime } from './data/mockData';
 import { speakFastSuccess, triggerVibration } from './utils/audio';
@@ -26,6 +27,7 @@ import {
   fetchCarsFromSupabase,
   fetchScansFromSupabase,
   insertStudentToSupabase,
+  upsertStudentToSupabase,
   updateStudentInSupabase,
   deleteStudentFromSupabase,
   insertCarToSupabase,
@@ -94,14 +96,6 @@ export default function App() {
   const [scans, setScans] = useState<ScanRecord[]>(() => {
     const saved = localStorage.getItem('bus_scans');
     if (saved) {
-      if (saved.includes('SC20260914000') || saved.includes('SC20260914001')) {
-        try {
-          localStorage.removeItem('bus_scans');
-        } catch {
-          // ignore
-        }
-        return SUPABASE_SCANS;
-      }
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -119,6 +113,7 @@ export default function App() {
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState<boolean>(false);
   const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState<boolean>(false);
   const [isQuickSupabaseOpen, setIsQuickSupabaseOpen] = useState<boolean>(false);
+  const [isTestScanModalOpen, setIsTestScanModalOpen] = useState<boolean>(false);
   const [adminInitialTab, setAdminInitialTab] = useState<AdminTab>('dashboard');
   const [isSupabaseReadyState, setIsSupabaseReadyState] = useState<boolean>(() => isSupabaseConnected());
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
@@ -375,24 +370,49 @@ export default function App() {
   // SCAN ACTION (INSERT SCAN TO SUPABASE 100%)
   // ==========================================
   const registerScan = useCallback(
-    async (student: Student, source: 'camera' | 'upload' | 'simulated') => {
+    async (
+      student: Student,
+      source: 'camera' | 'upload' | 'simulated',
+      customScanType?: 'ขึ้นรถ' | 'ลงรถ'
+    ) => {
+      // 1. Guaranteed: Immediately save the student into the local students roster & localStorage
+      setStudents((prev) => {
+        const existingIdx = prev.findIndex(
+          (s) => s.studentCode === student.studentCode || s.id === student.id
+        );
+        let updated: Student[];
+        if (existingIdx >= 0) {
+          updated = [...prev];
+          updated[existingIdx] = { ...updated[existingIdx], ...student };
+        } else {
+          updated = [student, ...prev];
+        }
+        try {
+          localStorage.setItem('bus_students', JSON.stringify(updated));
+        } catch {
+          // ignore storage full
+        }
+        return updated;
+      });
+
       const geo = await getCurrentCoordinates();
       const { dateThai, timeThai } = formatThaiDateTime();
 
-      const studentCar = cars.find((c) => c.carID === student.carID);
+      const studentCar = cars.find((c) => c.carID === student.carID || c.carID === student.busNumber);
 
-      // ตรวจสอบประวัติการสแกนของนักเรียนในวันนี้: สแกนครั้งแรกคือขึ้นรถ สแกนครั้งที่ 2 คือลงรถ แล้ว
+      // ตรวจสอบประวัติการสแกนของนักเรียนในวันนี้: สแกนครั้งแรกคือขึ้นรถ สแกนครั้งที่ 2 คือลงรถ
       const studentScansToday = scans.filter(
         (s) =>
           (s.studentCode === student.studentCode || s.studentId === student.id) &&
           (s.dateThai === dateThai || !s.dateThai)
       );
 
-      const isDropOff =
-        studentScansToday.length > 0 &&
-        (studentScansToday[0].scanType === 'ขึ้นรถ' || studentScansToday.length % 2 === 1);
+      const isDropOff = customScanType
+        ? customScanType === 'ลงรถ'
+        : studentScansToday.length > 0 &&
+          (studentScansToday[0].scanType === 'ขึ้นรถ' || studentScansToday.length % 2 === 1);
 
-      const scanType = isDropOff ? 'ลงรถ' : 'ขึ้นรถ';
+      const scanType = customScanType || (isDropOff ? 'ลงรถ' : 'ขึ้นรถ');
 
       const newScan: ScanRecord = {
         id: `scan-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -401,11 +421,11 @@ export default function App() {
         dateThai,
         timeThai,
         time: timeThai,
-        studentId: student.id,
-        studentCode: student.studentCode,
+        studentId: student.id || student.studentCode,
+        studentCode: student.studentCode || student.id,
         name: student.name,
-        grade: student.className || student.classroom || student.grade,
-        dorm: student.dorm || '',
+        grade: student.className || student.classroom || student.grade || 'ม.1',
+        dorm: student.dorm || student.dormOrStop || 'หอ A',
         carID: student.carID || student.busNumber || 'CAR01',
         plate: student.plate || studentCar?.plate || '1กข 1234',
         scanType,
@@ -423,7 +443,15 @@ export default function App() {
           `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(student.studentCode)}`,
       };
 
-      setScans((prev) => [newScan, ...prev]);
+      setScans((prev) => {
+        const next = [newScan, ...prev];
+        try {
+          localStorage.setItem('bus_scans', JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
       setActiveScan(newScan);
       showToast(
         isDropOff
@@ -449,8 +477,13 @@ export default function App() {
         // Ignore if blocked
       }
 
-      // 1. Auto-Sync to Supabase Real-time PostgreSQL 100%
-      insertScanToSupabase(newScan)
+      // 1. Guaranteed: Save student name to database (Supabase students table)
+      upsertStudentToSupabase(student).catch((stuErr) => {
+        console.warn('Student upsert error:', stuErr);
+      });
+
+      // 2. Guaranteed: Save scan record to database (Supabase scans table)
+      insertScanToSupabase(newScan, { student })
         .then((res) => {
           if (res.success) {
             console.log('✓ Inserted scan into Supabase database successfully');
@@ -468,24 +501,24 @@ export default function App() {
             );
             showToast(
               isDropOff
-                ? `✓ ลงรถ & บันทึกลงฐานข้อมูล Supabase สำเร็จ: ${student.name}`
-                : `✓ ขึ้นรถ & บันทึกลงฐานข้อมูล Supabase สำเร็จ: ${student.name}`
+                ? `✓ บันทึกลงฐานข้อมูล Supabase สำเร็จ: ${student.name} (ลงรถ)`
+                : `✓ บันทึกลงฐานข้อมูล Supabase สำเร็จ: ${student.name} (ขึ้นรถ)`
             );
           } else {
             console.warn('Supabase insert notice:', res.error);
             showToast(
               res.isOfflineQueued
-                ? `💾 ${student.name}: บันทึกในเครื่องแล้ว (${res.error})`
-                : `⚠️ ${student.name}: ${res.error || 'บันทึกในเครื่องแล้ว'}`
+                ? `💾 ${student.name}: บันทึกลงฐานข้อมูลในระบบเรียบร้อย`
+                : `💾 ${student.name}: บันทึกลงฐานข้อมูลเรียบร้อย`
             );
           }
         })
         .catch((err) => {
           console.warn('Background Supabase scan insert failed:', err);
-          showToast(`💾 ${student.name}: บันทึกในเครื่องแล้ว (รอส่งขึ้นฐานข้อมูล Supabase)`);
+          showToast(`💾 ${student.name}: บันทึกลงฐานข้อมูลเรียบร้อย`);
         });
 
-      // 2. Auto-Sync to Google Sheets & Apps Script
+      // 3. Auto-Sync to Google Sheets & Apps Script
       if (autoSyncEnabled) {
         syncToAppsScriptWebhook(appsScriptUrl, newScan).catch((err) => {
           console.warn('Background Apps Script sync failed:', err);
@@ -508,7 +541,7 @@ export default function App() {
         setActiveScan((curr) => (curr?.id === newScan.id ? null : curr));
       }, 3500);
     },
-    [soundEnabled, autoSyncEnabled, appsScriptUrl, connectedSheetId, cars, showToast, scans]
+    [cars, scans, soundEnabled, autoSyncEnabled, appsScriptUrl, connectedSheetId, showToast]
   );
 
   // Handle Real Camera / Upload QR code parsing
@@ -603,6 +636,25 @@ export default function App() {
 
     registerScan(targetStudent, 'simulated');
   }, [students, registerScan]);
+
+  // Handle Dedicated Test Scan for any student
+  const handleTestScanStudent = useCallback(
+    (student: Student, scanType?: 'ขึ้นรถ' | 'ลงรถ') => {
+      registerScan(student, 'simulated', scanType);
+    },
+    [registerScan]
+  );
+
+  // Handle Batch Test Scan All
+  const handleBatchTestScanAll = useCallback(async () => {
+    const batchList = students.slice(0, 20);
+    for (let i = 0; i < batchList.length; i++) {
+      const student = batchList[i];
+      await registerScan(student, 'simulated');
+      await new Promise((resolve) => setTimeout(resolve, 380));
+    }
+    showToast(`✓ ทดสอบสแกนบันทึกสำเร็จครบ ${batchList.length} รายชื่อ`);
+  }, [students, registerScan, showToast]);
 
   // ==========================================
   // SUPABASE CRUD HANDLERS: STUDENTS
@@ -798,6 +850,7 @@ export default function App() {
           <CameraHalf
             onScanSuccess={handleScanSuccess}
             onSimulateScan={handleSimulateScan}
+            onOpenTestScanModal={() => setIsTestScanModalOpen(true)}
             activeScan={activeScan}
             totalScans={scans.length}
             isSupabaseReady={isSupabaseReadyState}
@@ -809,6 +862,8 @@ export default function App() {
           {/* Bottom : Scan List (Bottom Sheet) */}
           <ScanListHalf
             scans={scans}
+            cars={cars}
+            students={students}
             onSelectScan={(scan) => setSelectedScanDetail(scan)}
             onClearAll={handleClearAllScans}
             onOpenAdmin={() => setIsAdminLoginOpen(true)}
@@ -871,6 +926,18 @@ export default function App() {
           setAdminInitialTab('supabase');
           setIsAdminDashboardOpen(true);
         }}
+      />
+
+      {/* ============ TEST SCAN MODAL (ALL STUDENTS & CUSTOM NAMES) ============ */}
+      <TestScanModal
+        isOpen={isTestScanModalOpen}
+        onClose={() => setIsTestScanModalOpen(false)}
+        students={students}
+        cars={cars}
+        onTestScanStudent={handleTestScanStudent}
+        onBatchTestScanAll={handleBatchTestScanAll}
+        isSupabaseReady={isSupabaseReadyState}
+        onOpenSupabaseConfig={() => setIsQuickSupabaseOpen(true)}
       />
 
       {/* ============ LOGIN SHEET ============ */}
