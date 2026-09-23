@@ -1,6 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Student, Car, ScanRecord } from '../types';
-import { SUPABASE_CARS, SUPABASE_SCANS } from '../data/supabaseSeed';
 
 // LocalStorage Keys for persistent client-side configuration
 const STORAGE_KEY_URL = 'qr_bus_supabase_url';
@@ -529,7 +528,7 @@ function mapCarRow(c: Record<string, unknown>): Car {
 export async function fetchCarsFromSupabase(): Promise<{ success: boolean; data: Car[]; error?: string }> {
   const client = getSupabaseClient();
   if (!client) {
-    return { success: false, data: SUPABASE_CARS, error: 'No client configured' };
+    return { success: false, data: [], error: 'ยังไม่ได้เชื่อมต่อ Supabase' };
   }
 
   try {
@@ -540,7 +539,7 @@ export async function fetchCarsFromSupabase(): Promise<{ success: boolean; data:
 
     if (error) {
       console.warn('Supabase fetch cars error:', error);
-      return { success: false, data: SUPABASE_CARS, error: error.message };
+      return { success: false, data: [], error: error.message };
     }
 
     if (!data || data.length === 0) {
@@ -552,7 +551,7 @@ export async function fetchCarsFromSupabase(): Promise<{ success: boolean; data:
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('Failed to fetch cars from Supabase:', err);
-    return { success: false, data: SUPABASE_CARS, error: msg };
+    return { success: false, data: [], error: msg };
   }
 }
 
@@ -726,7 +725,7 @@ function mapScanRow(sc: Record<string, unknown>): ScanRecord {
 export async function fetchScansFromSupabase(): Promise<{ success: boolean; data: ScanRecord[]; error?: string }> {
   const client = getSupabaseClient();
   if (!client) {
-    return { success: false, data: SUPABASE_SCANS, error: 'No client configured' };
+    return { success: false, data: [], error: 'ยังไม่ได้เชื่อมต่อ Supabase' };
   }
 
   try {
@@ -747,7 +746,7 @@ export async function fetchScansFromSupabase(): Promise<{ success: boolean; data
         return { success: true, data: [] };
       }
       console.warn('Supabase fetch scans error:', error);
-      return { success: false, data: SUPABASE_SCANS, error: error.message };
+      return { success: false, data: [], error: error.message };
     }
 
     if (!data || data.length === 0) {
@@ -759,7 +758,7 @@ export async function fetchScansFromSupabase(): Promise<{ success: boolean; data
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('Failed to fetch scans from Supabase:', err);
-    return { success: false, data: SUPABASE_SCANS, error: msg };
+    return { success: false, data: [], error: msg };
   }
 }
 

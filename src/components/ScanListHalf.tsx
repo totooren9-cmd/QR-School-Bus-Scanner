@@ -13,6 +13,7 @@ interface ScanListHalfProps {
   cars?: Car[];
   students?: Student[];
   onOpenDailyReport?: () => void;
+  onOpenMap?: () => void;
 }
 
 export const ScanListHalf: React.FC<ScanListHalfProps> = ({
@@ -25,6 +26,7 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
   cars = [],
   students = [],
   onOpenDailyReport,
+  onOpenMap,
 }) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -91,6 +93,17 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
           >
             📊
           </button>
+          {onOpenMap && (
+            <button
+              className="icon-circle map"
+              id="btnRouteMap"
+              type="button"
+              onClick={onOpenMap}
+              title="แผนที่เส้นทางรถและพิกัดสแกนจุดรับส่ง"
+            >
+              🗺️
+            </button>
+          )}
           <button
             className="icon-circle"
             id="btnClear"

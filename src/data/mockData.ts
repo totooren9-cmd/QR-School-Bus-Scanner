@@ -1,14 +1,13 @@
 import { Student, ScanRecord, Car } from '../types';
-import { SUPABASE_CARS, SUPABASE_SCANS } from './supabaseSeed';
 
 // 100% Supabase Students - No Mock Data (Students loaded from public.students in Supabase)
 export const INITIAL_STUDENTS: Student[] = [];
 
-// 5 School Cars (CAR01 - CAR05)
-export const INITIAL_CARS: Car[] = SUPABASE_CARS;
+// 100% Supabase Cars - No Mock Data (Cars loaded from public.cars in Supabase)
+export const INITIAL_CARS: Car[] = [];
 
-// Real historical scans directly from database
-export const INITIAL_SCANS: ScanRecord[] = SUPABASE_SCANS;
+// 100% Supabase Scans - No Mock Data (Scans loaded from public.scans in Supabase)
+export const INITIAL_SCANS: ScanRecord[] = [];
 
 // Bus stops align with student routes and dorms from Google Sheet
 export const MOCK_BUS_STOPS = [

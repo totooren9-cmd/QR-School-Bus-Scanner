@@ -31,6 +31,7 @@ import { GoogleSheetsPanel } from './GoogleSheetsPanel';
 import { SupabasePanel } from './SupabasePanel';
 import { isSupabaseConnected } from '../services/supabaseClient';
 import { StudentExcelModal } from './StudentExcelModal';
+import { BusRouteMap } from './BusRouteMap';
 import { exportStudentTemplateXLSX, exportStudentsToXLSX, exportScansToXLSX } from '../utils/excelStudents';
 
 interface AdminDashboardProps {
@@ -667,6 +668,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </button>
         <button
           className={`at px-3 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1 ${
+            activeTab === 'routes' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+          }`}
+          type="button"
+          onClick={() => setActiveTab('routes')}
+        >
+          <MapPin className="w-3.5 h-3.5 text-amber-400" />
+          <span>แผนที่เส้นทาง</span>
+        </button>
+        <button
+          className={`at px-3 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1 ${
             activeTab === 'students' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
           }`}
           type="button"
@@ -829,6 +840,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
+            {/* Realtime Bus Route Map by Scanned Student Coordinates */}
+            <BusRouteMap
+              cars={cars}
+              scans={scans}
+              students={students}
+            />
+
             {/* Recent Scans Table */}
             <div className="bg-slate-900 border border-white/10 rounded-2xl p-4 shadow-sm">
               <div className="flex items-center justify-between mb-3">
@@ -909,6 +927,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </table>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* TAB: ROUTES MAP */}
+        {/* ======================================================== */}
+        {activeTab === 'routes' && (
+          <div className="space-y-4" id="tab-routes">
+            <BusRouteMap
+              cars={cars}
+              scans={scans}
+              students={students}
+            />
           </div>
         )}
 

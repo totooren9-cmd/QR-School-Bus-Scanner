@@ -8,7 +8,6 @@ import { AdminLoginModal } from './components/AdminLoginModal';
 import { AdminDashboard } from './components/AdminDashboard';
 import { QuickSupabaseModal } from './components/QuickSupabaseModal';
 import { TestScanModal } from './components/TestScanModal';
-import { SUPABASE_CARS, SUPABASE_SCANS } from './data/supabaseSeed';
 import { formatThaiDateTime } from './data/mockData';
 import { speakFastSuccess, triggerVibration } from './utils/audio';
 import { getCurrentCoordinates } from './utils/geo';
@@ -96,12 +95,12 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       } catch {
-        return SUPABASE_CARS;
+        return [];
       }
     }
-    return SUPABASE_CARS;
+    return [];
   });
 
   const [scans, setScans] = useState<ScanRecord[]>(() => {
@@ -109,14 +108,14 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           return deduplicateAndFixScanIds(parsed);
         }
       } catch {
-        return SUPABASE_SCANS;
+        return [];
       }
     }
-    return SUPABASE_SCANS;
+    return [];
   });
 
   const [activeScan, setActiveScan] = useState<ScanRecord | null>(null);
@@ -308,7 +307,7 @@ export default function App() {
         if (unsubscribe) unsubscribe();
       };
     }
-  }, [refreshFromSupabase]);
+  }, [refreshFromSupabase, isSupabaseReadyState]);
 
   // Flush pending offline scans automatically when the device comes back online
   useEffect(() => {
@@ -441,9 +440,19 @@ export default function App() {
         scanType,
         scannerName: 'MOBILE01',
         busNumber: student.busNumber || student.carID || 'CAR01',
-        locationName: student.dormOrStop || student.busStopName || geo.locationName,
-        latitude: geo.latitude,
-        longitude: geo.longitude,
+        locationName: student.pickup_point || student.pickupPoint || student.pickup || student.dormOrStop || student.busStopName || geo.locationName,
+        latitude:
+          typeof student.latitude === 'number' && !isNaN(student.latitude) && student.latitude !== 0
+            ? student.latitude
+            : typeof student.lat === 'number' && !isNaN(student.lat)
+            ? student.lat
+            : geo.latitude,
+        longitude:
+          typeof student.longitude === 'number' && !isNaN(student.longitude) && student.longitude !== 0
+            ? student.longitude
+            : typeof student.lng === 'number' && !isNaN(student.lng)
+            ? student.lng
+            : geo.longitude,
         scanSource: source,
         status: 'success',
         dbSaved: false,
@@ -717,8 +726,15 @@ export default function App() {
 
   const handleClearMockStudents = () => {
     localStorage.removeItem('bus_students');
+    localStorage.removeItem('bus_cars');
+    localStorage.removeItem('bus_scans');
     setStudents([]);
-    showToast('ล้างข้อมูล Mockdata นักเรียนเรียบร้อย (ระบบใช้ Supabase 100%)');
+    setCars([]);
+    setScans([]);
+    showToast('ล้างแคช Mockdata ในเครื่องทั้งหมดเรียบร้อย (ระบบใช้ Supabase 100%)');
+    if (isSupabaseConnected()) {
+      refreshFromSupabase(false);
+    }
   };
 
   const handleImportStudents = async (importedStudents: Student[]) => {
@@ -861,6 +877,27 @@ export default function App() {
           id="screen-scan"
           className={`screen ${!isAdminDashboardOpen ? 'active' : ''}`}
         >
+          {/* Top banner when Supabase is not connected yet */}
+          {!isSupabaseReadyState && (
+            <div className="mx-3 my-2 p-2.5 bg-gradient-to-r from-amber-950/90 via-slate-900 to-amber-950/90 border border-amber-500/50 rounded-2xl shadow-xl flex items-center justify-between gap-2.5 text-xs z-30 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-lg animate-pulse">⚡</span>
+                <div className="min-w-0">
+                  <p className="font-bold text-amber-300 truncate">ยังไม่ได้เชื่อมต่อ Supabase Database</p>
+                  <p className="text-[10px] text-slate-300 truncate">แตะเพื่อกรอก Project URL & Key เชื่อมต่อระบบ 100%</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsQuickSupabaseOpen(true)}
+                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] shrink-0 transition-all shadow-md active:scale-95 flex items-center gap-1"
+              >
+                <span>เชื่อมต่อ</span>
+                <span>→</span>
+              </button>
+            </div>
+          )}
+
           {/* Top : Camera */}
           <CameraHalf
             onScanSuccess={handleScanSuccess}
@@ -882,6 +919,10 @@ export default function App() {
             onSelectScan={(scan) => setSelectedScanDetail(scan)}
             onClearAll={handleClearAllScans}
             onOpenAdmin={() => setIsAdminLoginOpen(true)}
+            onOpenMap={() => {
+              setAdminInitialTab('routes');
+              setIsAdminDashboardOpen(true);
+            }}
             soundEnabled={soundEnabled}
             onToggleSound={() => {
               setSoundEnabled((prev) => {

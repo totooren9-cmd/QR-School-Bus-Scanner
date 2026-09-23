@@ -28,6 +28,8 @@ export interface Student {
   pickup_point?: string;
   latitude?: number | null;
   longitude?: number | null;
+  lat?: number | null;
+  lng?: number | null;
   mapLink?: string;
   map_link?: string;
   parent?: string;
@@ -88,6 +90,7 @@ export interface ScanRecord {
 
 export type AdminTab =
   | 'dashboard'
+  | 'routes'
   | 'students'
   | 'cars'
   | 'qrcode'

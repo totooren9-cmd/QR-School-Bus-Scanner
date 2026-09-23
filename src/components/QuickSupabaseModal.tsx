@@ -121,7 +121,49 @@ export const QuickSupabaseModal: React.FC<QuickSupabaseModalProps> = ({
     }
   };
 
-  const sqlQuickSetup = `-- คำสั่ง SQL สำหรับสร้างตาราง scans ใน Supabase SQL Editor
+  const sqlQuickSetup = `-- ========================================================
+-- คำสั่ง SQL สำหรับสร้างตารางทั้งหมดใน Supabase SQL Editor (100% Real Cloud)
+-- ========================================================
+
+-- 1. ตารางรถรับส่ง (cars)
+CREATE TABLE IF NOT EXISTS public.cars (
+    car_id TEXT PRIMARY KEY,
+    plate_number TEXT NOT NULL,
+    name TEXT NOT NULL,
+    route TEXT,
+    driver_name TEXT,
+    driver_phone TEXT,
+    attendant_name TEXT,
+    capacity INTEGER DEFAULT 60,
+    status TEXT DEFAULT 'ใช้งาน',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. ตารางข้อมูลนักเรียน (students)
+CREATE TABLE IF NOT EXISTS public.students (
+    student_id TEXT PRIMARY KEY,
+    qr_code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    nickname TEXT,
+    grade TEXT,
+    room TEXT,
+    seat_number INTEGER,
+    dorm TEXT,
+    car_id TEXT,
+    pickup_point TEXT,
+    latitude NUMERIC(10, 7),
+    longitude NUMERIC(10, 7),
+    map_link TEXT,
+    parent_name TEXT,
+    parent_phone TEXT,
+    status TEXT DEFAULT 'ใช้งาน',
+    qr_image TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. ตารางบันทึกการสแกน (scans)
 CREATE TABLE IF NOT EXISTS public.scans (
     scan_id TEXT PRIMARY KEY,
     scan_date DATE NOT NULL,
@@ -141,30 +183,78 @@ CREATE TABLE IF NOT EXISTS public.scans (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ปลดล็อก Foreign Key เพื่อให้บันทึกสแกนได้ทันทีโดยไม่สะดุด
+-- 4. ตารางผู้ใช้งาน (users)
+CREATE TABLE IF NOT EXISTS public.users (
+    user_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    role TEXT NOT NULL DEFAULT 'Staff',
+    car_id TEXT DEFAULT 'ALL',
+    status TEXT DEFAULT 'ใช้งาน',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 5. ตารางตั้งค่าระบบ (settings)
+CREATE TABLE IF NOT EXISTS public.settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    description TEXT,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ดัชนีเพื่อค้นหาได้รวดเร็ว
+CREATE INDEX IF NOT EXISTS idx_students_car_id ON public.students(car_id);
+CREATE INDEX IF NOT EXISTS idx_scans_date ON public.scans(scan_date);
+CREATE INDEX IF NOT EXISTS idx_scans_student_id ON public.scans(student_id);
+
+-- ปลดล็อก Foreign Key เพื่อให้บันทึกสแกนได้ทันที
 ALTER TABLE public.scans DROP CONSTRAINT IF EXISTS scans_student_id_fkey;
 ALTER TABLE public.scans DROP CONSTRAINT IF EXISTS scans_car_id_fkey;
 
 -- เปิด RLS และอนุญาตให้อ่าน/บันทึก 100%
+ALTER TABLE public.cars ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.scans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Public cars access" ON public.cars;
+CREATE POLICY "Public cars access" ON public.cars FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public students access" ON public.students;
+CREATE POLICY "Public students access" ON public.students FOR ALL USING (true) WITH CHECK (true);
+
 DROP POLICY IF EXISTS "Public scans access" ON public.scans;
 CREATE POLICY "Public scans access" ON public.scans FOR ALL USING (true) WITH CHECK (true);
 
--- อนุญาตสิทธิ์การเข้าถึงผ่าน PostgREST API (ป้องกันข้อผิดพลาด PGRST125 Invalid Path)
-GRANT ALL ON TABLE public.scans TO anon, authenticated, service_role;
+DROP POLICY IF EXISTS "Public users access" ON public.users;
+CREATE POLICY "Public users access" ON public.users FOR ALL USING (true) WITH CHECK (true);
 
--- เปิด Realtime
+DROP POLICY IF EXISTS "Public settings access" ON public.settings;
+CREATE POLICY "Public settings access" ON public.settings FOR ALL USING (true) WITH CHECK (true);
+
+-- อนุญาตสิทธิ์ PostgREST API
+GRANT ALL ON TABLE public.cars TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.students TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.scans TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.users TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.settings TO anon, authenticated, service_role;
+
+-- เปิด Realtime สำหรับทุกตาราง
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_tables 
-    WHERE pubname = 'supabase_realtime' AND tablename = 'scans'
-  ) THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'cars') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.cars;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'students') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.students;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'scans') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.scans;
   END IF;
 END $$;
 
--- สั่ง PostgREST อัปเดต Schema แคชทันที
+-- รีโหลด PostgREST Schema แคชทันที
 NOTIFY pgrst, 'reload schema';`;
 
   const copySqlCode = async () => {
