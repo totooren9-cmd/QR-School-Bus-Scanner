@@ -109,6 +109,14 @@ export const QuickSupabaseModal: React.FC<QuickSupabaseModalProps> = ({
       setIsSyncing(false);
       setPendingCount(getPendingScans().length);
     }
+
+    // Auto-close on successful connection
+    const currentTest = await testSupabaseConnection();
+    if (currentTest.success) {
+      setTimeout(() => {
+        onClose();
+      }, 1200);
+    }
   };
 
   const handleManualSync = async () => {
@@ -253,6 +261,16 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.scans;
   END IF;
 END $$;
+
+-- 6. ข้อมูลรถรับส่งเริ่มต้น 5 คัน (บันทึกลง Supabase Cloud โดยตรง)
+INSERT INTO public.cars (car_id, plate_number, name, route, driver_name, driver_phone, attendant_name, capacity, status)
+VALUES
+  ('CAR01', '1กข 1234', 'รถคันที่ 1', 'หอ A', 'นายสมชาย ใจดี', '081-111-1111', 'นางสาวเอ รักเรียน', 60, 'ใช้งาน'),
+  ('CAR02', '2กข 2345', 'รถคันที่ 2', 'หอ B', 'นายวิชัย มั่นคง', '082-222-2222', 'นางสาวบี ศรีสุข', 60, 'ใช้งาน'),
+  ('CAR03', '3กข 3456', 'รถคันที่ 3', 'หอ C', 'นายประเสริฐ ทองคำ', '083-333-3333', 'นางสาวซี บุญมี', 60, 'ใช้งาน'),
+  ('CAR04', '4กข 4567', 'รถคันที่ 4', 'หอ D', 'นายอนุชา แสงทอง', '084-444-4444', 'นางสาวดี พูลสุข', 60, 'ใช้งาน'),
+  ('CAR05', '5กข 5678', 'รถคันที่ 5', 'หอ E', 'นายธนกร วงศ์ไทย', '085-555-5555', 'นางสาวอี จันทร์เพ็ญ', 60, 'ใช้งาน')
+ON CONFLICT (car_id) DO NOTHING;
 
 -- รีโหลด PostgREST Schema แคชทันที
 NOTIFY pgrst, 'reload schema';`;
@@ -461,17 +479,17 @@ NOTIFY pgrst, 'reload schema';`;
               <button
                 type="button"
                 onClick={copySqlCode}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center gap-1 transition-colors text-[11px]"
+                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium flex items-center gap-1 transition-colors text-[11px] shadow-sm"
               >
                 {copiedSql ? (
                   <>
-                    <Check className="w-3 h-3 text-emerald-400" />
-                    <span className="text-emerald-300 font-semibold">คัดลอกแล้ว!</span>
+                    <Check className="w-3 h-3 text-white" />
+                    <span className="font-semibold">คัดลอกแล้ว!</span>
                   </>
                 ) : (
                   <>
                     <Copy className="w-3 h-3" />
-                    <span>คัดลอก SQL สร้างตาราง scans</span>
+                    <span>คัดลอก SQL สร้างตารางทั้งหมด</span>
                   </>
                 )}
               </button>
@@ -486,8 +504,25 @@ NOTIFY pgrst, 'reload schema';`;
               >
                 Supabase SQL Editor <ExternalLink className="w-2.5 h-2.5" />
               </a>{' '}
-              ตารางและการบันทึกสแกนจะพร้อมใช้งาน 100% ทันที
+              ตารางทั้งหมด รถ และการบันทึกสแกนจะพร้อมใช้งาน 100% ทันที
             </p>
+
+            {/* Netlify instructions card */}
+            <div className="mt-3 p-3 bg-slate-950/70 border border-sky-500/30 rounded-2xl space-y-1.5 text-[11px]">
+              <div className="font-bold text-sky-400 flex items-center gap-1.5">
+                <span>🌐 ตั้งค่าบน Netlify ให้เชื่อมต่ออัตโนมัติทุกเครื่อง:</span>
+              </div>
+              <p className="text-slate-300 text-[10px] leading-relaxed">
+                ไปที่ <strong>Netlify Dashboard</strong> &rarr; <strong>Site configuration</strong> &rarr; <strong>Environment variables</strong> แล้วเพิ่ม:
+              </p>
+              <div className="font-mono text-[10px] bg-slate-900 px-2.5 py-1.5 rounded-lg border border-white/5 text-emerald-300 space-y-0.5 select-all">
+                <div>VITE_SUPABASE_URL = {url || 'https://xxxxxxxxxxxxxxxxxxxx.supabase.co'}</div>
+                <div>VITE_SUPABASE_ANON_KEY = {anonKey || 'eyJhbGciOi...'}</div>
+              </div>
+              <p className="text-slate-400 text-[9.5px]">
+                จากนั้นกด Trigger deploy ใหม่ ทุกคนที่เข้าเว็บจะเชื่อมต่อ Supabase เดียวกันอัตโนมัติ 100%!
+              </p>
+            </div>
 
             {onOpenFullSqlTab && (
               <button

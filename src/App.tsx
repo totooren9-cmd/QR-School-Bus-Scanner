@@ -60,29 +60,35 @@ function deduplicateAndFixScanIds(records: ScanRecord[]): ScanRecord[] {
   });
 }
 
+// Auto-purge any legacy mock data from browser localStorage (100% Supabase Cloud enforcement)
+if (typeof window !== 'undefined') {
+  try {
+    const PURGE_KEY = 'qr_bus_legacy_mock_purged_v5';
+    if (!localStorage.getItem(PURGE_KEY)) {
+      localStorage.removeItem('bus_students');
+      localStorage.removeItem('bus_cars');
+      localStorage.removeItem('bus_scans');
+      localStorage.setItem(PURGE_KEY, 'done');
+    }
+  } catch (err) {
+    console.warn('Storage purge warning:', err);
+  }
+}
+
 export default function App() {
   const [showSplash, setShowSplash] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<string>('09:41');
   const [toastMsg, setToastMsg] = useState<string>('');
 
-  // Primary Data States (Initialized from Supabase / LocalStorage - Mockdata Cancelled 100%)
+  // Primary Data States (100% Supabase Cloud Driven - Zero Mock Data)
   const [students, setStudents] = useState<Student[]>(() => {
+    // If Supabase is not connected yet, never load local mock data
+    if (!isSupabaseConnected()) return [];
     const saved = localStorage.getItem('bus_students');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          // If stored students are old mockdata (e.g. 300 mock students), clear it out
-          if (
-            parsed.length === 300 &&
-            parsed[0]?.studentCode === 'STD0001' &&
-            parsed[0]?.name?.includes('พฤกษ์ชาติ')
-          ) {
-            localStorage.removeItem('bus_students');
-            return [];
-          }
-          return parsed;
-        }
+        if (Array.isArray(parsed)) return parsed;
       } catch {
         return [];
       }
@@ -91,6 +97,7 @@ export default function App() {
   });
 
   const [cars, setCars] = useState<Car[]>(() => {
+    if (!isSupabaseConnected()) return [];
     const saved = localStorage.getItem('bus_cars');
     if (saved) {
       try {
@@ -104,6 +111,7 @@ export default function App() {
   });
 
   const [scans, setScans] = useState<ScanRecord[]>(() => {
+    if (!isSupabaseConnected()) return [];
     const saved = localStorage.getItem('bus_scans');
     if (saved) {
       try {
@@ -122,7 +130,7 @@ export default function App() {
   const [selectedScanDetail, setSelectedScanDetail] = useState<ScanRecord | null>(null);
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState<boolean>(false);
   const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState<boolean>(false);
-  const [isQuickSupabaseOpen, setIsQuickSupabaseOpen] = useState<boolean>(false);
+  const [isQuickSupabaseOpen, setIsQuickSupabaseOpen] = useState<boolean>(() => !isSupabaseConnected());
   const [isTestScanModalOpen, setIsTestScanModalOpen] = useState<boolean>(false);
   const [adminInitialTab, setAdminInitialTab] = useState<AdminTab>('dashboard');
   const [isSupabaseReadyState, setIsSupabaseReadyState] = useState<boolean>(() => isSupabaseConnected());

@@ -1047,14 +1047,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     id="btnClearMockStudents"
                     className="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-rose-900/40 text-slate-400 hover:text-rose-300 border border-white/10 font-medium text-xs flex items-center gap-1.5 transition-all active:scale-95"
                     onClick={() => {
-                      if (window.confirm('ต้องการยกเลิกและล้าง Mockdata นักเรียนทั้งหมดใช่หรือไม่? (ระบบจะใช้ข้อมูลจากตาราง public.students ใน Supabase 100%)')) {
+                      if (window.confirm('ต้องการล้างแคชในเครื่องทั้งหมดใช่หรือไม่? (ระบบจะโหลดเฉพาะข้อมูลจริงจาก Supabase Cloud 100%)')) {
                         onClearMockStudents();
                       }
                     }}
-                    title="ยกเลิก Mockdata เพื่อใช้ข้อมูลจาก Supabase 100%"
+                    title="ล้างแคชในเครื่อง เพื่อโหลดข้อมูลจริงจาก Supabase 100%"
                   >
                     <Trash2 className="w-3.5 h-3.5 text-slate-400" />
-                    <span>ยกเลิก Mockdata</span>
+                    <span>ล้างแคชเครื่อง (Supabase 100%)</span>
                   </button>
                 )}
 
