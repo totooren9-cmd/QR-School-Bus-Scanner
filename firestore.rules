@@ -139,7 +139,7 @@ service cloud.firestore {
       (!('dorm' in data) || isNullableString(data.dorm, 200)) &&
       (!('location_name' in data) || isNullableString(data.location_name, 300)) &&
       data.scan_type in ['ขึ้นรถ', 'ลงรถ'] &&
-      data.scan_source in ['camera', 'upload', 'simulated'] &&
+      data.scan_source in ['camera', 'upload', 'simulated', 'scanner'] &&
       (!('scanner_by' in data) || isNullableString(data.scanner_by, 200)) &&
       (!('scanner_device' in data) || isNullableString(data.scanner_device, 100)) &&
       (!('scan_result' in data) || isNullableString(data.scan_result, 50)) &&

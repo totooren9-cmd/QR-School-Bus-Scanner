@@ -80,7 +80,7 @@ export interface ScanRecord {
   locationName: string;
   latitude: number;
   longitude: number;
-  scanSource: 'camera' | 'upload' | 'simulated';
+  scanSource: 'camera' | 'upload' | 'simulated' | 'scanner';
   status: 'success' | 'warn' | 'error';
   scanType?: string;
   scannerName?: string;

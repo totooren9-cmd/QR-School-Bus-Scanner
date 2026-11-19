@@ -94,6 +94,18 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
                 <span className="font-semibold text-emerald-400">{scan.timeThai}</span>
               </div>
               <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/40 border border-white/5">
+                <span className="text-slate-400">📡 ช่องทางการสแกน:</span>
+                <span className="font-semibold text-amber-300">
+                  {scan.scanSource === 'scanner'
+                    ? '🔌 เครื่องยิงบาร์โค้ด (USB / Bluetooth)'
+                    : scan.scanSource === 'upload'
+                    ? '🖼️ อัปโหลดรูปภาพ'
+                    : scan.scanSource === 'simulated'
+                    ? '🧪 ทดสอบระบบ'
+                    : '📷 กล้องถ่ายรูป'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/40 border border-white/5">
                 <span className="text-slate-400">💾 สถานะฐานข้อมูล:</span>
                 {scan.dbSaved ? (
                   <span className="font-semibold text-emerald-400 flex items-center gap-1.5">

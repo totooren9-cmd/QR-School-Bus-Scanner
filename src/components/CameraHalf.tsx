@@ -2,15 +2,23 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import jsQR from 'jsqr';
 import { ScanRecord } from '../types';
 import { playSuccessChime, triggerVibration } from '../utils/audio';
+import { convertKedmaneeToEnglish, hasThaiCharacters } from '../utils/thaiKeyboard';
 
 interface CameraHalfProps {
-  onScanSuccess: (studentData: { studentCode?: string; rawText: string; source: 'camera' | 'upload' | 'simulated' }) => void;
+  onScanSuccess: (studentData: {
+    studentCode?: string;
+    rawText: string;
+    source: 'camera' | 'upload' | 'simulated' | 'scanner';
+    customScanType?: 'ขึ้นรถ' | 'ลงรถ';
+  }) => void;
   checkDuplicateBeforeScan?: (rawText: string) => { blocked: boolean; remainSec: number; label?: string };
   onSimulateScan: () => void;
   onOpenTestScanModal?: () => void;
   activeScan: ScanRecord | null;
   totalScans: number;
   onCameraActiveChange?: (active: boolean) => void;
+  scanMode?: 'camera' | 'scanner';
+  onScanModeChange?: (mode: 'camera' | 'scanner') => void;
 }
 
 interface FocusRing {
@@ -31,11 +39,29 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
   activeScan,
   totalScans,
   onCameraActiveChange,
+  scanMode: propScanMode,
+  onScanModeChange,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const scannerInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Scan Mode: 'camera' (Mobile Camera) or 'scanner' (Hardware USB / Bluetooth Barcode Gun)
+  const [internalScanMode, setInternalScanMode] = useState<'camera' | 'scanner'>(() => {
+    try {
+      return (localStorage.getItem('qr_bus_scan_mode') as 'camera' | 'scanner') || 'camera';
+    } catch {
+      return 'camera';
+    }
+  });
+
+  const scanMode = propScanMode !== undefined ? propScanMode : internalScanMode;
+
+  // Scanner direction selection: 'auto' | 'ขึ้นรถ' | 'ลงรถ'
+  const [scannerDirection, setScannerDirection] = useState<'auto' | 'ขึ้นรถ' | 'ลงรถ'>('auto');
+  const [barcodeInputValue, setBarcodeInputValue] = useState<string>('');
 
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [torchOn, setTorchOn] = useState<boolean>(false);
@@ -126,39 +152,22 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
     onCameraActiveChange?.(false);
   }, [clearScanTimers, onCameraActiveChange]);
 
-  // Apply autofocus to hardware video track
-  const applyAutofocusConstraints = useCallback(async (track: MediaStreamTrack) => {
-    try {
-      if (!track.getCapabilities) return;
-      const capabilities = track.getCapabilities() as any;
-      const constraints: any = { advanced: [] };
-
-      // Continuous autofocus if supported
-      if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
-        constraints.advanced.push({ focusMode: 'continuous' });
-      }
-
-      // Exposure mode continuous if supported
-      if (capabilities.exposureMode && capabilities.exposureMode.includes('continuous')) {
-        constraints.advanced.push({ exposureMode: 'continuous' });
-      }
-
-      if (constraints.advanced.length > 0) {
-        await track.applyConstraints(constraints);
-      }
-    } catch {
-      // Ignore if device ignores advanced constraints
-    }
-  }, []);
+  const triggerScanFoundRef = useRef<((text: string, source: 'camera' | 'upload' | 'simulated' | 'scanner', customScanType?: 'ขึ้นรถ' | 'ลงรถ') => void) | null>(null);
 
   // Trigger scan success with brief delay cooldown & 10-second duplicate QR lock
   const triggerScanFound = useCallback(
-    (rawText: string, source: 'camera' | 'upload' | 'simulated' = 'camera') => {
+    (
+      rawText: string,
+      source: 'camera' | 'upload' | 'simulated' | 'scanner' = 'camera',
+      customScanType?: 'ขึ้นรถ' | 'ลงรถ'
+    ) => {
       if (source === 'camera' && isCooldownRef.current) {
         return;
       }
 
-      const normalizedKey = rawText.trim();
+      // Automatically transliterate Thai Kedmanee keys to English QWERTY
+      const convertedText = convertKedmaneeToEnglish(rawText).trim();
+      const normalizedKey = convertedText.toUpperCase();
       const now = Date.now();
 
       // Prune expired entries older than 10 seconds
@@ -174,12 +183,12 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
         ? Math.max(1, Math.ceil((DUPLICATE_QR_LOCK_MS - (now - lastScannedAt)) / 1000))
         : 0;
 
-      const appCheck = checkDuplicateRef.current?.(rawText);
+      const appCheck = checkDuplicateRef.current?.(convertedText);
       const isBlocked = localBlocked || Boolean(appCheck?.blocked);
       const remainSec = Math.max(localRemainSec, appCheck?.remainSec || 0, 1);
 
       if (isBlocked) {
-        if (source === 'camera') {
+        if (source === 'camera' || source === 'scanner') {
           if (now - lastDuplicateNoticeRef.current >= 850) {
             lastDuplicateNoticeRef.current = now;
             const targetText = appCheck?.label ? ` ${appCheck.label}` : 'คิวอาร์โค้ดนี้';
@@ -195,8 +204,9 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
         }
         // For gallery upload, forward to App duplicate guard without chime/vibration so user gets toast
         onScanSuccessRef.current({
-          rawText,
+          rawText: convertedText,
           source,
+          customScanType,
         });
         return;
       }
@@ -212,8 +222,9 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
       triggerVibration();
 
       onScanSuccessRef.current({
-        rawText,
+        rawText: convertedText,
         source,
+        customScanType,
       });
 
       justScannedTimerRef.current = window.setTimeout(() => {
@@ -227,6 +238,84 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
     },
     [clearScanTimers]
   );
+
+  useEffect(() => {
+    triggerScanFoundRef.current = triggerScanFound;
+  }, [triggerScanFound]);
+
+  // Mode Switcher Handler
+  const handleSwitchMode = (nextMode: 'camera' | 'scanner') => {
+    setInternalScanMode(nextMode);
+    onScanModeChange?.(nextMode);
+    try {
+      localStorage.setItem('qr_bus_scan_mode', nextMode);
+    } catch {
+      // Ignore storage error
+    }
+    if (nextMode === 'scanner') {
+      stopScanner();
+      setTimeout(() => {
+        scannerInputRef.current?.focus();
+      }, 150);
+    }
+  };
+
+  // Auto-focus scanner input in scanner mode
+  useEffect(() => {
+    if (scanMode === 'scanner') {
+      const timer = setTimeout(() => {
+        scannerInputRef.current?.focus();
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [scanMode]);
+
+  // Global Keyboard Wedge Listener for USB / Bluetooth Barcode Scanners (HID Wedge)
+  useEffect(() => {
+    let barcodeBuffer = '';
+    let lastKeyTime = 0;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isOtherInput =
+        activeEl &&
+        (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA') &&
+        activeEl.id !== 'usbBarcodeField' &&
+        activeEl.id !== 'scannerConsoleInput';
+
+      // Ignore if user is intentionally typing into another field (e.g. search, edit student)
+      if (isOtherInput) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastKeyTime > 120) {
+        barcodeBuffer = '';
+      }
+      lastKeyTime = now;
+
+      if (e.key === 'Enter') {
+        const code = barcodeBuffer.trim();
+        if (code.length >= 2) {
+          barcodeBuffer = '';
+          const converted = convertKedmaneeToEnglish(code);
+          const src = scanMode === 'scanner' ? 'scanner' : 'camera';
+          const dir = scannerDirection === 'auto' ? undefined : scannerDirection;
+          triggerScanFoundRef.current?.(converted, src, dir);
+          e.preventDefault();
+        } else {
+          barcodeBuffer = '';
+        }
+      } else if (e.key.length === 1) {
+        barcodeBuffer += e.key;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [scanMode, scannerDirection]);
 
   // Dual engine scan loop (Hardware BarcodeDetector + Center Crop jsQR)
   const scanLoop = useCallback(async () => {
@@ -313,6 +402,29 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
     }
   }, [triggerScanFound]);
 
+  // Apply autofocus to hardware video track
+  const applyAutofocusConstraints = useCallback(async (track: MediaStreamTrack) => {
+    try {
+      if (!track.getCapabilities) return;
+      const capabilities = track.getCapabilities() as any;
+      const constraints: any = { advanced: [] };
+
+      if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
+        constraints.advanced.push({ focusMode: 'continuous' });
+      }
+
+      if (capabilities.exposureMode && capabilities.exposureMode.includes('continuous')) {
+        constraints.advanced.push({ exposureMode: 'continuous' });
+      }
+
+      if (constraints.advanced.length > 0) {
+        await track.applyConstraints(constraints);
+      }
+    } catch {
+      // Ignore if device ignores advanced constraints
+    }
+  }, []);
+
   // Start real camera with optimal resolution and continuous focus
   const startScanner = async () => {
     try {
@@ -357,15 +469,15 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
       const msg = err instanceof Error ? err.message : String(err);
       setCameraError(
         msg.includes('Permission') || msg.includes('NotAllowed')
-          ? 'อุปกรณ์ยังไม่อนุญาตให้เข้าถึงกล้อง (สามารถใช้ปุ่ม "ทดสอบสแกน" หรือ "คลังรูป" ด้านล่างได้ทันที)'
-          : 'ไม่สามารถเปิดกล้องได้ในเบราว์เซอร์นี้ (ใช้ปุ่ม "ทดสอบสแกน" เพื่อทดสอบบันทึกได้ 100%)'
+          ? 'อุปกรณ์ยังไม่อนุญาตให้เข้าถึงกล้อง (สามารถสลับไปใช้โหมด "เครื่องยิงบาร์โค้ด" หรือ "ทดสอบสแกน" ได้ทันที)'
+          : 'ไม่สามารถเปิดกล้องได้ในเบราว์เซอร์นี้ (สามารถใช้โหมด "เครื่องยิงบาร์โค้ด" ด้านบนได้ 100%)'
       );
     }
   };
 
   // Tap-to-Focus interaction
   const handleStageTap = async (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!stageRef.current || !isCameraActive) return;
+    if (!stageRef.current || !isCameraActive || scanMode === 'scanner') return;
 
     const rect = stageRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -405,7 +517,7 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
 
   useEffect(() => {
     isCameraActiveRef.current = isCameraActive;
-    if (isCameraActive) {
+    if (isCameraActive && scanMode === 'camera') {
       if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
       }
@@ -417,7 +529,7 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
         animationFrameId.current = null;
       }
     };
-  }, [isCameraActive, scanLoop]);
+  }, [isCameraActive, scanLoop, scanMode]);
 
   useEffect(() => {
     return () => {
@@ -491,200 +603,466 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
     e.target.value = '';
   };
 
+  // Handle Barcode Scanner Form Submit
+  const handleBarcodeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!barcodeInputValue.trim()) return;
+    const textToScan = barcodeInputValue.trim();
+    setBarcodeInputValue('');
+    const dir = scannerDirection === 'auto' ? undefined : scannerDirection;
+    triggerScanFound(textToScan, 'scanner', dir);
+  };
+
   return (
-    <div className="camera-half">
-      {/* Dynamic Island */}
-      <div className="flex flex-col items-center gap-1.5 z-20 pointer-events-auto">
+    <div className="camera-half flex flex-col relative overflow-hidden bg-slate-950">
+      {/* Top Header Row: Dynamic Island & Mode Switcher */}
+      <div className="flex flex-col items-center gap-2 pt-2 px-3 z-30 pointer-events-auto shrink-0">
+        {/* Dynamic Island */}
         <div className="dynamic-island">
           <span className="di-dot"></span>
           <span className="di-text font-medium">
             {activeScan ? `✓ ${activeScan.name} (${activeScan.grade})` : `QR SCAN • ${totalScans} คน`}
           </span>
         </div>
+
+        {/* Mode Switcher Tabs: Mobile Camera vs Barcode Scanner */}
+        <div className="inline-flex items-center p-1 bg-slate-900/90 backdrop-blur-md border border-white/10 rounded-full shadow-lg">
+          <button
+            type="button"
+            onClick={() => handleSwitchMode('camera')}
+            className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${
+              scanMode === 'camera'
+                ? 'bg-amber-500 text-slate-950 shadow-md scale-[1.02]'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>📷</span>
+            <span>กล้องมือถือ</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSwitchMode('scanner')}
+            className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${
+              scanMode === 'scanner'
+                ? 'bg-amber-500 text-slate-950 shadow-md scale-[1.02]'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>🔌</span>
+            <span>เครื่องยิงบาร์โค้ด</span>
+          </button>
+        </div>
       </div>
 
-      <div
-        id="cameraStage"
-        ref={stageRef}
-        className="camera-stage"
-        onClick={handleStageTap}
-        title="แตะหน้าจอเพื่อปรับโฟกัสกล้อง"
-      >
-        {/* Hidden Canvas for QR frame processing */}
-        <canvas ref={canvasRef} style={{ display: 'none' }} />
-
-        {/* Video stream when camera active */}
-        <div id="qr-reader" className="qr-reader">
-          <video
-            ref={videoRef}
-            playsInline
-            autoPlay
-            muted
-            className="w-full h-full object-cover"
-            style={{ display: isCameraActive ? 'block' : 'none' }}
-          />
-        </div>
-
-        {/* Tap-to-Focus Animated Ring */}
-        {focusRing && (
+      {/* ========================================================
+          MODE 1: HARDWARE BARCODE SCANNER CONSOLE (ELEVATED & CLEARLY VISIBLE)
+          ======================================================== */}
+      {scanMode === 'scanner' && (
+        <div
+          className="flex-1 w-full flex flex-col items-center justify-start p-3 sm:p-4 z-20 text-center select-none overflow-y-auto pb-32"
+          onClick={() => scannerInputRef.current?.focus()}
+        >
+          {/* Main Barcode Scanner Box - Elevated & Highly Visible Above Any Bottom Sheet */}
           <div
-            className="camera-focus-ring"
-            style={{ left: focusRing.x, top: focusRing.y }}
-          />
-        )}
+            className="w-full max-w-md mx-auto flex flex-col gap-3 mt-1 bg-slate-900/95 backdrop-blur-md border-2 border-amber-400 rounded-2xl p-3.5 shadow-2xl shadow-amber-500/20"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Card Header & Status */}
+            <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+              <div className="flex items-center gap-2 text-left">
+                <span className="text-xl">🔌</span>
+                <div>
+                  <h3 className="text-xs sm:text-sm font-bold text-amber-300">
+                    ช่องยิงบาร์โค้ด / QR Code
+                  </h3>
+                  <p className="text-[10px] text-slate-400">
+                    USB & Bluetooth HID Keyboard Wedge
+                  </p>
+                </div>
+              </div>
+              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5 shadow-sm">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                พร้อมรับสัญญาณ
+              </span>
+            </div>
 
-        {/* QR Overlay Frame with Precision Optical Alignment ("ตรง ๆ") */}
-        {isCameraActive && (
-          <div className="qr-overlay" id="qrOverlay">
-            <div className={`qr-frame ${isJustScanned ? 'scanned' : ''}`}>
+            {/* Direction Selector Tabs */}
+            <div className="flex items-center justify-center gap-1 p-1 bg-slate-950/90 border border-white/10 rounded-xl">
+              <span className="text-[11px] text-slate-400 font-medium px-2 shrink-0">ประเภท:</span>
+              <button
+                type="button"
+                onClick={() => setScannerDirection('auto')}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all ${
+                  scannerDirection === 'auto'
+                    ? 'bg-amber-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                🔄 อัตโนมัติ
+              </button>
+              <button
+                type="button"
+                onClick={() => setScannerDirection('ขึ้นรถ')}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all ${
+                  scannerDirection === 'ขึ้นรถ'
+                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-emerald-400'
+                }`}
+              >
+                🟢 ขึ้นรถ
+              </button>
+              <button
+                type="button"
+                onClick={() => setScannerDirection('ลงรถ')}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all ${
+                  scannerDirection === 'ลงรถ'
+                    ? 'bg-sky-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-sky-400'
+                }`}
+              >
+                🔴 ลงรถ
+              </button>
+            </div>
+
+            {/* High-Contrast Large Barcode Input Box */}
+            <form onSubmit={handleBarcodeSubmit} className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-400 text-base">
+                  ⚡
+                </span>
+                <input
+                  id="scannerConsoleInput"
+                  ref={scannerInputRef}
+                  type="text"
+                  value={barcodeInputValue}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (hasThaiCharacters(val)) {
+                      setBarcodeInputValue(convertKedmaneeToEnglish(val));
+                    } else {
+                      setBarcodeInputValue(val);
+                    }
+                  }}
+                  placeholder="คลิกที่นี่แล้วยิงบาร์โค้ด / พิมพ์รหัสแล้ว Enter..."
+                  className="w-full pl-9 pr-8 py-3 bg-slate-950 border-2 border-amber-400 rounded-xl text-white placeholder-slate-400 text-sm font-mono font-bold focus:outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 shadow-inner"
+                  autoComplete="off"
+                />
+                {barcodeInputValue && (
+                  <button
+                    type="button"
+                    onClick={() => setBarcodeInputValue('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs p-1"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <button
+                type="submit"
+                className="px-4 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs sm:text-sm shrink-0 shadow-lg transition-transform active:scale-95 flex items-center gap-1"
+              >
+                <span>⚡ ยิง/ส่ง</span>
+              </button>
+            </form>
+
+            {/* Auto-transliteration badge and test button */}
+            <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+              <span className="flex items-center gap-1 text-emerald-400 font-medium truncate">
+                <span>✓</span> แปลงแป้นพิมพ์ภาษาไทยเป็นอังกฤษอัตโนมัติ
+              </span>
+              <button
+                type="button"
+                onClick={onOpenTestScanModal || onSimulateScan}
+                className="text-amber-400 hover:text-amber-300 font-bold underline shrink-0 ml-2"
+              >
+                🧪 ทดสอบสแกน
+              </button>
+            </div>
+          </div>
+
+          {/* Compact Laser Radar Scanner Box */}
+          <div className="relative mt-3 flex flex-col items-center justify-center">
+            <div
+              className={`relative w-36 h-28 sm:w-44 sm:h-32 rounded-2xl bg-slate-900/80 border-2 transition-all flex flex-col items-center justify-center p-3 shadow-xl ${
+                isJustScanned
+                  ? 'border-emerald-400 shadow-emerald-500/30 scale-105'
+                  : duplicateHint
+                  ? 'border-amber-400 shadow-amber-500/30'
+                  : 'border-amber-500/40 shadow-amber-500/10'
+              }`}
+            >
               <span className="corner tl"></span>
               <span className="corner tr"></span>
               <span className="corner bl"></span>
               <span className="corner br"></span>
+              <div className="scan-line"></div>
 
-              {/* Center Optical Crosshairs for Direct Focus */}
-              <div className="crosshair-center">
-                <div className="crosshair-h"></div>
-                <div className="crosshair-v"></div>
-                <div className="crosshair-dot"></div>
+              <div className="flex items-end justify-center gap-1 mb-1.5">
+                <span className="w-1 h-9 bg-amber-400 rounded-sm"></span>
+                <span className="w-1 h-9 bg-amber-300 rounded-sm"></span>
+                <span className="w-2 h-9 bg-amber-500 rounded-sm"></span>
+                <span className="w-1 h-9 bg-amber-400 rounded-sm"></span>
+                <span className="w-2.5 h-9 bg-amber-300 rounded-sm"></span>
+                <span className="w-1 h-9 bg-amber-400 rounded-sm"></span>
+                <span className="w-1.5 h-9 bg-amber-500 rounded-sm"></span>
               </div>
 
-              {/* Laser Scanning Line */}
-              <div className="scan-line"></div>
-            </div>
-
-            <div className="qr-hint flex items-center gap-1.5" id="qrHint">
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  isJustScanned
-                    ? 'bg-emerald-400'
-                    : duplicateHint
-                    ? 'bg-amber-400 animate-pulse'
-                    : isScanningCooldown
-                    ? 'bg-sky-400 animate-pulse'
-                    : 'bg-amber-400 animate-ping'
-                }`}
-              ></span>
-              <span>
-                {isJustScanned
-                  ? '✓ ล็อกเป้าสำเร็จ! (หน่วงเวลา 2.5 วิ)'
-                  : duplicateHint
-                  ? duplicateHint
-                  : isScanningCooldown
-                  ? '⏳ หน่วงเวลาสแกนสักครู่...'
-                  : 'จัด QR Code ให้อยู่ตรงกลางกรอบเล็ง (แตะจอเพื่อปรับโฟกัส)'}
+              <span className="font-mono text-[11px] text-amber-300 font-bold tracking-wider">
+                {isJustScanned ? '✓ สแกนสำเร็จ!' : duplicateHint ? '⏳ สแกนซ้ำ' : 'READY TO SCAN'}
               </span>
             </div>
-          </div>
-        )}
 
-        {/* Start Cover (When camera is not active) */}
-        {!isCameraActive && (
-          <div className="camera-cover" id="cameraCover">
-            <div className="cover-icon">📷</div>
-            <h2 className="text-xl font-bold text-white">พร้อมสแกน QR Code</h2>
-            <p className="text-slate-300 text-xs mt-1">
-              ระบบโฟกัสตรงกึ่งกลาง & บันทึกฐานข้อมูลทุกๆ รายชื่อ Real-time
-            </p>
-
-            {cameraError && (
-              <div className="mt-3 px-3 py-2 bg-amber-500/15 border border-amber-500/30 rounded-xl text-amber-200 text-xs max-w-sm text-center">
-                {cameraError}
-              </div>
-            )}
-
-            <div className="flex flex-col sm:flex-row items-center gap-2 mt-4 w-full max-w-xs">
-              <button
-                className="btn-ios-primary w-full flex items-center justify-center gap-2"
-                id="btnStartScan"
-                onClick={startScanner}
-                type="button"
-              >
-                <span>เปิดกล้องสแกน</span>
-              </button>
-
-              <button
-                className="w-full px-4 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl shadow-lg transition-all active:scale-[0.98] text-xs flex items-center justify-center gap-1.5"
-                id="btnOpenTestScanFromCover"
-                onClick={onOpenTestScanModal || onSimulateScan}
-                type="button"
-              >
-                <span>🧪 ทดสอบสแกนรายชื่อ</span>
-              </button>
+            {/* Notification / Duplicate Hint Banner */}
+            <div className="mt-2.5 min-h-[28px] flex items-center justify-center px-2">
+              {duplicateHint ? (
+                <div className="px-3 py-1 bg-amber-500/20 border border-amber-500/40 rounded-full text-amber-200 text-xs font-semibold animate-pulse">
+                  {duplicateHint}
+                </div>
+              ) : isJustScanned ? (
+                <div className="px-3 py-1 bg-emerald-500/20 border border-emerald-500/40 rounded-full text-emerald-300 text-xs font-semibold">
+                  ✓ บันทึกลง Firebase Firestore สำเร็จเรียลไทม์!
+                </div>
+              ) : (
+                <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  <span>เล็งเครื่องยิงแล้วกดสแกนได้ทันที (ดักจับสัญญาณทั่วหน้าจอ)</span>
+                </div>
+              )}
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Top Controls */}
-        <div className="cam-controls">
-          <button
-            className={`cam-btn ${torchOn ? 'active' : ''}`}
-            id="btnFlash"
-            onClick={toggleFlash}
-            type="button"
-            title="ไฟฉาย"
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z" />
-            </svg>
-          </button>
+      {/* ========================================================
+          MODE 2: PHONE CAMERA SCANNER
+          ======================================================== */}
+      {scanMode === 'camera' && (
+        <div
+          id="cameraStage"
+          ref={stageRef}
+          className="camera-stage flex-1 relative overflow-hidden"
+          onClick={handleStageTap}
+          title="แตะหน้าจอเพื่อปรับโฟกัสกล้อง"
+        >
+          {/* Hidden Canvas for QR frame processing */}
+          <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-          <button
-            className="cam-btn"
-            onClick={openGallery}
-            type="button"
-            title="คลังรูป"
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <path d="M21 15l-5-5L5 21" />
-            </svg>
-          </button>
+          {/* Video stream when camera active */}
+          <div id="qr-reader" className="qr-reader">
+            <video
+              ref={videoRef}
+              playsInline
+              autoPlay
+              muted
+              className="w-full h-full object-cover"
+              style={{ display: isCameraActive ? 'block' : 'none' }}
+            />
+          </div>
 
-          <button
-            className="cam-btn bg-amber-500/20 text-amber-300 border-amber-500/40"
-            onClick={onOpenTestScanModal || onSimulateScan}
-            type="button"
-            title="ทดสอบสแกน & บันทึกลงฐานข้อมูลทุกๆ รายชื่อ"
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-            </svg>
-          </button>
+          {/* Tap-to-Focus Animated Ring */}
+          {focusRing && (
+            <div
+              className="camera-focus-ring"
+              style={{ left: focusRing.x, top: focusRing.y }}
+            />
+          )}
 
+          {/* QR Overlay Frame with Precision Optical Alignment */}
           {isCameraActive && (
+            <div className="qr-overlay" id="qrOverlay">
+              <div className={`qr-frame ${isJustScanned ? 'scanned' : ''}`}>
+                <span className="corner tl"></span>
+                <span className="corner tr"></span>
+                <span className="corner bl"></span>
+                <span className="corner br"></span>
+
+                {/* Center Optical Crosshairs */}
+                <div className="crosshair-center">
+                  <div className="crosshair-h"></div>
+                  <div className="crosshair-v"></div>
+                  <div className="crosshair-dot"></div>
+                </div>
+
+                {/* Laser Scanning Line */}
+                <div className="scan-line"></div>
+              </div>
+
+              <div className="qr-hint flex items-center gap-1.5" id="qrHint">
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isJustScanned
+                      ? 'bg-emerald-400'
+                      : duplicateHint
+                      ? 'bg-amber-400 animate-pulse'
+                      : isScanningCooldown
+                      ? 'bg-sky-400 animate-pulse'
+                      : 'bg-amber-400 animate-ping'
+                  }`}
+                ></span>
+                <span>
+                  {isJustScanned
+                    ? '✓ ล็อกเป้าสำเร็จ! (หน่วงเวลา 2.5 วิ)'
+                    : duplicateHint
+                    ? duplicateHint
+                    : isScanningCooldown
+                    ? '⏳ หน่วงเวลาสแกนสักครู่...'
+                    : 'จัด QR Code ให้อยู่ตรงกลางกรอบเล็ง (แตะจอเพื่อปรับโฟกัส)'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Start Cover (When camera is not active) */}
+          {!isCameraActive && (
+            <div className="camera-cover" id="cameraCover">
+              <div className="cover-icon">📷</div>
+              <h2 className="text-xl font-bold text-white">พร้อมสแกน QR Code</h2>
+              <p className="text-slate-300 text-xs mt-1">
+                ระบบโฟกัสตรงกึ่งกลาง & บันทึกฐานข้อมูลทุกๆ รายชื่อ Real-time
+              </p>
+
+              {cameraError && (
+                <div className="mt-3 px-3 py-2 bg-amber-500/15 border border-amber-500/30 rounded-xl text-amber-200 text-xs max-w-sm text-center">
+                  {cameraError}
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row items-center gap-2 mt-4 w-full max-w-xs">
+                <button
+                  className="btn-ios-primary w-full flex items-center justify-center gap-2"
+                  id="btnStartScan"
+                  onClick={startScanner}
+                  type="button"
+                >
+                  <span>เปิดกล้องสแกน</span>
+                </button>
+
+                <button
+                  className="w-full px-4 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl shadow-lg transition-all active:scale-[0.98] text-xs flex items-center justify-center gap-1.5"
+                  id="btnOpenTestScanFromCover"
+                  onClick={onOpenTestScanModal || onSimulateScan}
+                  type="button"
+                >
+                  <span>🧪 ทดสอบสแกนรายชื่อ</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Top Controls on Camera */}
+          <div className="cam-controls">
             <button
-              className="cam-btn"
-              onClick={() => {
-                const nextMode = facingMode === 'environment' ? 'user' : 'environment';
-                setFacingMode(nextMode);
-                stopScanner();
-                setTimeout(() => startScanner(), 100);
-              }}
+              className={`cam-btn ${torchOn ? 'active' : ''}`}
+              id="btnFlash"
+              onClick={toggleFlash}
               type="button"
-              title="สลับกล้อง"
+              title="ไฟฉาย"
             >
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8c0 2.21 1.006 4.21 2.607 5.568L4 20l4.432-2.607C9.79 17.794 10.79 18 12 18c4.418 0 8-3.582 8-8z" />
+                <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z" />
               </svg>
             </button>
-          )}
-        </div>
 
-        <input
-          type="file"
-          id="galleryInput"
-          ref={fileInputRef}
-          accept="image/*"
-          onChange={handlePhotoUpload}
-          style={{ display: 'none' }}
-        />
+            <button
+              className="cam-btn"
+              onClick={openGallery}
+              type="button"
+              title="คลังรูป"
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <path d="M21 15l-5-5L5 21" />
+              </svg>
+            </button>
 
-        <div id="torchNote" className={`torch-note ${torchError ? '' : 'hidden'}`}>
-          ไฟฉายไม่พร้อมใช้งานบนอุปกรณ์นี้
+            <button
+              className="cam-btn bg-amber-500/20 text-amber-300 border-amber-500/40"
+              onClick={onOpenTestScanModal || onSimulateScan}
+              type="button"
+              title="ทดสอบสแกน & บันทึกลงฐานข้อมูลทุกๆ รายชื่อ"
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+              </svg>
+            </button>
+
+            <button
+              className="cam-btn text-amber-400 border-amber-500/40 hover:bg-amber-500/20"
+              onClick={() => handleSwitchMode('scanner')}
+              type="button"
+              title="สลับไปโหมดเครื่องยิงบาร์โค้ด USB / Bluetooth"
+            >
+              🔌
+            </button>
+
+            {isCameraActive && (
+              <button
+                className="cam-btn"
+                onClick={() => {
+                  const nextMode = facingMode === 'environment' ? 'user' : 'environment';
+                  setFacingMode(nextMode);
+                  stopScanner();
+                  setTimeout(() => startScanner(), 100);
+                }}
+                type="button"
+                title="สลับกล้อง"
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8c0 2.21 1.006 4.21 2.607 5.568L4 20l4.432-2.607C9.79 17.794 10.79 18 12 18c4.418 0 8-3.582 8-8z" />
+                </svg>
+              </button>
+            )}
+          </div>
+
+          <input
+            type="file"
+            id="galleryInput"
+            ref={fileInputRef}
+            accept="image/*"
+            onChange={handlePhotoUpload}
+            style={{ display: 'none' }}
+          />
+
+          <div id="torchNote" className={`torch-note ${torchError ? '' : 'hidden'}`}>
+            ไฟฉายไม่พร้อมใช้งานบนอุปกรณ์นี้
+          </div>
+
+          {/* Quick Barcode Scanner Bar FLOATING ABOVE "รายการสแกนวันนี้" (bottom-24 sm:bottom-26) */}
+          <div className="absolute bottom-24 sm:bottom-26 left-3 right-3 max-w-md mx-auto z-40 flex items-center gap-2 px-3 py-2 bg-slate-900/95 backdrop-blur-md border-2 border-amber-400/90 rounded-2xl shadow-2xl shadow-amber-500/25">
+            <div className="flex items-center gap-1.5 shrink-0 text-amber-400 font-bold text-xs">
+              <span className="text-sm">⚡</span>
+              <span className="hidden sm:inline">เครื่องยิงบาร์โค้ด:</span>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const inputEl = document.getElementById('usbBarcodeField') as HTMLInputElement;
+                if (inputEl && inputEl.value.trim()) {
+                  const code = inputEl.value.trim();
+                  inputEl.value = '';
+                  triggerScanFound(code, 'scanner');
+                }
+              }}
+              className="flex-1 flex items-center gap-2"
+            >
+              <input
+                id="usbBarcodeField"
+                type="text"
+                placeholder="คลิกที่นี่แล้วยิงบาร์โค้ด / พิมพ์รหัสแล้ว Enter..."
+                className="w-full bg-slate-800 border border-white/20 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-amber-400 font-mono"
+                autoComplete="off"
+              />
+              <button
+                type="submit"
+                className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs shrink-0 transition-colors shadow-sm"
+              >
+                ยิง/ส่ง
+              </button>
+            </form>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

@@ -299,7 +299,7 @@
         },
         "scan_source": {
           "type": "string",
-          "enum": ["camera", "upload", "simulated"],
+          "enum": ["camera", "upload", "simulated", "scanner"],
           "maxLength": 20,
           "description": "Source of QR scan"
         },

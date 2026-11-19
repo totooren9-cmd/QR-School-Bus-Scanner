@@ -431,7 +431,7 @@ function mapScanDoc(data: DocumentData): ScanRecord {
     latitude: typeof data.latitude === 'number' ? data.latitude : 13.7548,
     longitude: typeof data.longitude === 'number' ? data.longitude : 100.4982,
     scanSource:
-      data.scan_source === 'upload' || data.scan_source === 'simulated'
+      data.scan_source === 'upload' || data.scan_source === 'simulated' || data.scan_source === 'scanner'
         ? data.scan_source
         : 'camera',
     status: 'success',
@@ -457,7 +457,9 @@ function buildScanPayload(scan: ScanRecord, ownerId: string, isCreate: boolean):
 
   const scanType = scan.scanType === 'ลงรถ' ? 'ลงรถ' : 'ขึ้นรถ';
   const scanSource =
-    scan.scanSource === 'upload' || scan.scanSource === 'simulated' ? scan.scanSource : 'camera';
+    scan.scanSource === 'upload' || scan.scanSource === 'simulated' || scan.scanSource === 'scanner'
+      ? scan.scanSource
+      : 'camera';
 
   const payload: Record<string, unknown> = {
     scan_id: scanId,

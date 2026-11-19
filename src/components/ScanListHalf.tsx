@@ -17,6 +17,7 @@ interface ScanListHalfProps {
   onOpenDailyReport?: () => void;
   onOpenMap?: () => void;
   cameraActive?: boolean;
+  scanMode?: 'camera' | 'scanner';
 }
 
 export const ScanListHalf: React.FC<ScanListHalfProps> = ({
@@ -31,6 +32,7 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
   onOpenDailyReport,
   onOpenMap,
   cameraActive = false,
+  scanMode = 'camera',
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -46,13 +48,13 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
     setActivityTick((t) => t + 1);
   }, []);
 
-  // Auto-collapse when camera starts scanning
+  // Auto-collapse when camera starts scanning or when in barcode scanner mode
   useEffect(() => {
-    if (cameraActive) {
+    if (cameraActive || scanMode === 'scanner') {
       setIsCollapsed(true);
       setSearchOpen(false);
     }
-  }, [cameraActive]);
+  }, [cameraActive, scanMode]);
 
   // Reset idle countdown when a new scan arrives while expanded
   useEffect(() => {
@@ -336,6 +338,11 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
 
                   {/* Status Badge: 'ขึ้นรถ' or 'ลงรถ แล้ว' */}
                   <div className="shrink-0 flex items-center gap-1.5">
+                    {scan.scanSource === 'scanner' && (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1 shrink-0" title="สแกนด้วยเครื่องยิงบาร์โค้ด USB/Bluetooth">
+                        ⚡ ยิง
+                      </span>
+                    )}
                     {scan.dbSaved ? (
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1" title="บันทึกในฐานข้อมูล Firebase Firestore เรียบร้อย">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>

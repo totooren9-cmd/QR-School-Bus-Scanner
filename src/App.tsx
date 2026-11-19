@@ -12,6 +12,7 @@ import { TestScanModal } from './components/TestScanModal';
 import { formatThaiDateTime } from './data/mockData';
 import { speakFastSuccess, triggerVibration } from './utils/audio';
 import { getInstantCoordinates, warmUpCoordinates } from './utils/geo';
+import { convertKedmaneeToEnglish, hasThaiCharacters } from './utils/thaiKeyboard';
 import { Student, ScanRecord, Car, AdminTab, AppUser, SystemSetting } from './types';
 import {
   DEFAULT_APPS_SCRIPT_URL,
@@ -133,6 +134,11 @@ function resolveStudentFromQrText(
 ): { student: Student; studentKey: string; rawKey: string } {
   let rawClean = rawText.trim();
 
+  // If input contains Thai characters from hardware scanner with Thai OS keyboard, convert to English
+  if (hasThaiCharacters(rawClean)) {
+    rawClean = convertKedmaneeToEnglish(rawClean).trim();
+  }
+
   if (rawClean.includes('text=')) {
     try {
       const url = new URL(rawClean);
@@ -237,6 +243,13 @@ export default function App() {
   // Firebase Auth & Primary Cloud Data States (100% Firestore Driven)
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
+  const [scanMode, setScanMode] = useState<'camera' | 'scanner'>(() => {
+    try {
+      return (localStorage.getItem('qr_bus_scan_mode') as 'camera' | 'scanner') || 'camera';
+    } catch {
+      return 'camera';
+    }
+  });
   const [students, setStudents] = useState<Student[]>(() => getPendingStudents());
   const [cars, setCars] = useState<Car[]>(() => getPendingCars());
   const [scans, setScans] = useState<ScanRecord[]>(() => getPendingScans());
@@ -613,7 +626,7 @@ export default function App() {
   const registerScan = useCallback(
     async (
       student: Student,
-      source: 'camera' | 'upload' | 'simulated',
+      source: 'camera' | 'upload' | 'simulated' | 'scanner',
       customScanType?: 'ขึ้นรถ' | 'ลงรถ',
       rawKey?: string
     ) => {
@@ -716,10 +729,11 @@ export default function App() {
       seenScanIdsRef.current.add(newScan.scanId || newScan.id);
       setScans((prev) => [newScan, ...prev]);
       setActiveScan(newScan);
+      const srcPrefix = source === 'scanner' ? '🔌 [เครื่องยิง] ' : '🔥 ';
       showToast(
         isDropOff
-          ? `🔥 สแกนลงรถสำเร็จ: ${student.name}`
-          : `🔥 สแกนขึ้นรถสำเร็จ: ${student.name}`
+          ? `${srcPrefix}สแกนลงรถสำเร็จ: ${student.name}`
+          : `${srcPrefix}สแกนขึ้นรถสำเร็จ: ${student.name}`
       );
 
       if (soundEnabled) {
@@ -801,11 +815,17 @@ export default function App() {
     [cars, soundEnabled, autoSyncEnabled, appsScriptUrl, connectedSheetId, firebaseUser, checkDuplicateForKeys, showToast]
   );
 
-  // Handle Real Camera / Upload QR code parsing
+  // Handle Real Camera / Scanner / Upload QR code parsing
   const handleScanSuccess = useCallback(
-    (data: { studentCode?: string; rawText: string; source: 'camera' | 'upload' | 'simulated' }) => {
-      const { student, rawKey } = resolveStudentFromQrText(data.rawText, studentsRef.current);
-      registerScan(student, data.source, undefined, rawKey);
+    (data: {
+      studentCode?: string;
+      rawText: string;
+      source: 'camera' | 'upload' | 'simulated' | 'scanner';
+      customScanType?: 'ขึ้นรถ' | 'ลงรถ';
+    }) => {
+      const convertedText = convertKedmaneeToEnglish(data.rawText);
+      const { student, rawKey } = resolveStudentFromQrText(convertedText, studentsRef.current);
+      registerScan(student, data.source, data.customScanType, rawKey);
     },
     [registerScan]
   );
@@ -1115,6 +1135,8 @@ export default function App() {
         >
           {/* Top : Camera */}
           <CameraHalf
+            scanMode={scanMode}
+            onScanModeChange={setScanMode}
             onScanSuccess={handleScanSuccess}
             checkDuplicateBeforeScan={checkDuplicateBeforeCameraScan}
             onSimulateScan={handleSimulateScan}
@@ -1130,6 +1152,7 @@ export default function App() {
             cars={cars}
             students={students}
             cameraActive={isCameraActive}
+            scanMode={scanMode}
             onSelectScan={(scan) => setSelectedScanDetail(scan)}
             onClearAll={handleClearAllScans}
             onOpenAdmin={() => setIsAdminLoginOpen(true)}
