@@ -198,91 +198,60 @@ service cloud.firestore {
     // Collection Rules
     // ========================================================
     match /students/{studentId} {
-      allow get: if isValidId(studentId) && (isAdmin() || isOwner());
-      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && existing().ownerId == request.auth.uid);
+      allow get: if isValidId(studentId);
+      allow list: if true;
 
-      allow create: if isVerifiedUser() &&
-        isValidId(studentId) &&
+      allow create: if isValidId(studentId) &&
         isValidStudent(incoming()) &&
         incoming().student_id == studentId &&
-        incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
 
-      allow update: if isVerifiedUser() &&
-        isValidId(studentId) &&
+      allow update: if isValidId(studentId) &&
         isValidStudent(incoming()) &&
         incoming().student_id == existing().student_id &&
-        incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt &&
-        incoming().updatedAt == request.time && (
-          isAdmin() ||
-          (isOwner() && incoming().diff(existing()).affectedKeys().hasOnly([
-            'qr_code', 'name', 'nickname', 'grade', 'room', 'className',
-            'seat_number', 'dorm', 'car_id', 'plate', 'pickup_point',
-            'latitude', 'longitude', 'map_link', 'parent_name',
-            'parent_phone', 'status', 'qr_image', 'avatarColor', 'updatedAt'
-          ])) ||
-          (isOwner() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
-        );
+        incoming().updatedAt == request.time;
 
-      allow delete: if isValidId(studentId) && (isAdmin() || isOwner());
+      allow delete: if isValidId(studentId);
     }
 
     match /cars/{carId} {
-      allow get: if isValidId(carId) && (isAdmin() || isOwner());
-      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && existing().ownerId == request.auth.uid);
+      allow get: if isValidId(carId);
+      allow list: if true;
 
-      allow create: if isVerifiedUser() &&
-        isValidId(carId) &&
+      allow create: if isValidId(carId) &&
         isValidCar(incoming()) &&
         incoming().car_id == carId &&
-        incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
 
-      allow update: if isVerifiedUser() &&
-        isValidId(carId) &&
+      allow update: if isValidId(carId) &&
         isValidCar(incoming()) &&
         incoming().car_id == existing().car_id &&
-        incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt &&
-        incoming().updatedAt == request.time && (
-          isAdmin() ||
-          (isOwner() && incoming().diff(existing()).affectedKeys().hasOnly([
-            'plate_number', 'name', 'route', 'driver_name', 'driver_phone',
-            'attendant_name', 'capacity', 'status', 'updatedAt'
-          ])) ||
-          (isOwner() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
-        );
+        incoming().updatedAt == request.time;
 
-      allow delete: if isValidId(carId) && (isAdmin() || isOwner());
+      allow delete: if isValidId(carId);
     }
 
     match /scans/{scanId} {
-      allow get: if isValidId(scanId) && (isAdmin() || isOwner() || (isVerifiedUser() && existing().scan_type in ['ขึ้นรถ', 'ลงรถ']));
-      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && existing().scan_type in ['ขึ้นรถ', 'ลงรถ']);
+      allow get: if isValidId(scanId);
+      allow list: if true;
 
-      allow create: if isVerifiedUser() &&
-        isValidId(scanId) &&
+      allow create: if isValidId(scanId) &&
         isValidScan(incoming()) &&
         incoming().scan_id == scanId &&
-        incoming().ownerId == request.auth.uid &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
 
-      allow update: if isVerifiedUser() &&
-        isValidId(scanId) &&
+      allow update: if isValidId(scanId) &&
         isValidScan(incoming()) &&
         incoming().scan_id == existing().scan_id &&
-        incoming().ownerId == existing().ownerId &&
         incoming().createdAt == existing().createdAt &&
-        incoming().updatedAt == request.time && (
-          isAdmin() ||
-          (isOwner() && incoming().diff(existing()).affectedKeys().hasOnly(['note', 'scan_type', 'updatedAt']))
-        );
+        incoming().updatedAt == request.time;
 
-      allow delete: if isValidId(scanId) && (isAdmin() || isOwner());
+      allow delete: if isValidId(scanId);
     }
 
     match /users/{userId} {

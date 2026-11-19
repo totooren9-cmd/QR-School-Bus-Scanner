@@ -652,6 +652,42 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
             <span>เครื่องยิงบาร์โค้ด</span>
           </button>
         </div>
+
+        {/* Barcode Scanner Quick Bar - ELEVATED AT TOP SO IT IS NEVER OBSCURED BY 'รายการสแกนวันนี้' */}
+        {scanMode === 'camera' && (
+          <div className="w-full max-w-md mx-auto flex items-center gap-2 px-3 py-2 bg-slate-900/95 backdrop-blur-md border-2 border-amber-400/90 rounded-2xl shadow-xl shadow-amber-500/20 mt-0.5">
+            <div className="flex items-center gap-1 shrink-0 text-amber-400 font-bold text-xs">
+              <span className="text-sm">⚡</span>
+              <span className="hidden sm:inline">เครื่องยิง:</span>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const inputEl = document.getElementById('usbBarcodeFieldTop') as HTMLInputElement;
+                if (inputEl && inputEl.value.trim()) {
+                  const code = inputEl.value.trim();
+                  inputEl.value = '';
+                  triggerScanFound(code, 'scanner');
+                }
+              }}
+              className="flex-1 flex items-center gap-2 min-w-0"
+            >
+              <input
+                id="usbBarcodeFieldTop"
+                type="text"
+                placeholder="คลิกที่นี่แล้วยิงบาร์โค้ด / พิมพ์รหัส..."
+                className="w-full bg-slate-950 border border-amber-400/60 focus:border-amber-300 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-400 font-mono font-semibold"
+                autoComplete="off"
+              />
+              <button
+                type="submit"
+                className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs shrink-0 transition-all active:scale-95 shadow-sm"
+              >
+                ⚡ ส่ง
+              </button>
+            </form>
+          </div>
+        )}
       </div>
 
       {/* ========================================================
@@ -659,7 +695,7 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
           ======================================================== */}
       {scanMode === 'scanner' && (
         <div
-          className="flex-1 w-full flex flex-col items-center justify-start p-3 sm:p-4 z-20 text-center select-none overflow-y-auto pb-32"
+          className="flex-1 w-full flex flex-col items-center justify-start p-2 sm:p-3 z-20 text-center select-none overflow-y-auto pb-20 pt-1"
           onClick={() => scannerInputRef.current?.focus()}
         >
           {/* Main Barcode Scanner Box - Elevated & Highly Visible Above Any Bottom Sheet */}
@@ -1026,40 +1062,6 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
 
           <div id="torchNote" className={`torch-note ${torchError ? '' : 'hidden'}`}>
             ไฟฉายไม่พร้อมใช้งานบนอุปกรณ์นี้
-          </div>
-
-          {/* Quick Barcode Scanner Bar FLOATING ABOVE "รายการสแกนวันนี้" (bottom-24 sm:bottom-26) */}
-          <div className="absolute bottom-24 sm:bottom-26 left-3 right-3 max-w-md mx-auto z-40 flex items-center gap-2 px-3 py-2 bg-slate-900/95 backdrop-blur-md border-2 border-amber-400/90 rounded-2xl shadow-2xl shadow-amber-500/25">
-            <div className="flex items-center gap-1.5 shrink-0 text-amber-400 font-bold text-xs">
-              <span className="text-sm">⚡</span>
-              <span className="hidden sm:inline">เครื่องยิงบาร์โค้ด:</span>
-            </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const inputEl = document.getElementById('usbBarcodeField') as HTMLInputElement;
-                if (inputEl && inputEl.value.trim()) {
-                  const code = inputEl.value.trim();
-                  inputEl.value = '';
-                  triggerScanFound(code, 'scanner');
-                }
-              }}
-              className="flex-1 flex items-center gap-2"
-            >
-              <input
-                id="usbBarcodeField"
-                type="text"
-                placeholder="คลิกที่นี่แล้วยิงบาร์โค้ด / พิมพ์รหัสแล้ว Enter..."
-                className="w-full bg-slate-800 border border-white/20 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-amber-400 font-mono"
-                autoComplete="off"
-              />
-              <button
-                type="submit"
-                className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs shrink-0 transition-colors shadow-sm"
-              >
-                ยิง/ส่ง
-              </button>
-            </form>
           </div>
         </div>
       )}

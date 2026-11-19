@@ -401,17 +401,80 @@ export default function App() {
     [showToast]
   );
 
-  // Listen to Firebase Auth state and attach Firestore onSnapshot listeners ONLY when authenticated
+  // 1. Initial Load & Real-Time Sync on Mount (100% Real-time cross-device sync without login)
   useEffect(() => {
-    let unsubscribeRealtime: (() => void) | null = null;
+    // Check & seed 300 employees + 5 cars if database is empty
+    if (!hasAutoSeededRef.current) {
+      hasAutoSeededRef.current = true;
+      ensureDatabaseSeededIfEmpty((p) => {
+        showToast(`🔥 ${p.step}`);
+      })
+        .then((seedResult) => {
+          if (seedResult.seeded) {
+            showToast(`🔥 ย้ายรายชื่อพนักงาน ${seedResult.studentsCount} คน & ข้อมูลระบบเข้า Firebase ครบ 100%!`);
+          }
+        })
+        .catch((seedErr) => {
+          console.warn('Auto-seed check notice:', seedErr);
+        });
+    }
 
+    // Initial fetch from Firebase
+    refreshFromFirebase(true);
+
+    // Attach real-time Firestore listeners for scans, students, and cars across all devices
+    const unsubscribeRealtime = subscribeToFirebaseRealtime({
+      onStudents: (rows) => {
+        if (rows.length > 0) {
+          setStudents(mergeStudentsWithPending(rows));
+        }
+      },
+      onCars: (rows) => {
+        if (rows.length > 0) {
+          setCars(mergeCarsWithPending(rows));
+        }
+      },
+      onScans: (rows) => {
+        const merged = deduplicateAndFixScanIds(mergeScansWithPending(rows));
+        if (hasLoadedInitialScansRef.current) {
+          const nowTs = Date.now();
+          const newRemoteScan = merged.find((s) => {
+            const key = s.scanId || s.id;
+            return (
+              key &&
+              !seenScanIdsRef.current.has(key) &&
+              typeof s.timestamp === 'number' &&
+              nowTs - s.timestamp < 30000
+            );
+          });
+          if (newRemoteScan) {
+            showToast(
+              `📡 ซิงค์รายการสแกนเรียลไทม์: ${newRemoteScan.name} (${newRemoteScan.scanType || 'ขึ้นรถ'})`
+            );
+          }
+        }
+        const nextSeen = new Set<string>();
+        merged.forEach((s) => {
+          const key = s.scanId || s.id;
+          if (key) nextSeen.add(key);
+        });
+        seenScanIdsRef.current = nextSeen;
+        hasLoadedInitialScansRef.current = true;
+        setScans(merged);
+      },
+      onUsers: (rows) => setUsers(rows),
+      onSettings: (rows) => setSettings(rows),
+    });
+
+    return () => {
+      unsubscribeRealtime();
+    };
+  }, [refreshFromFirebase, showToast]);
+
+  // 2. Track optional Firebase Auth state (e.g. for Admin profile management)
+  useEffect(() => {
     const unsubscribeAuth = onFirebaseAuthChanged(async (user) => {
       setFirebaseUser(user);
-
-      if (unsubscribeRealtime) {
-        unsubscribeRealtime();
-        unsubscribeRealtime = null;
-      }
 
       if (user && user.emailVerified) {
         // Flush pending offline Cars -> Students -> Scans FIRST so nothing is overwritten
@@ -428,71 +491,11 @@ export default function App() {
         } catch {
           // Will retry on next reconnect
         }
-
-        // Auto-seed 300 students + 5 cars + 3 users + 10 settings on first connection if DB is empty
-        if (!hasAutoSeededRef.current) {
-          hasAutoSeededRef.current = true;
-          try {
-            const seedResult = await ensureDatabaseSeededIfEmpty((p) => {
-              showToast(`🔥 ${p.step}`);
-            });
-            if (seedResult.seeded) {
-              showToast(`🔥 ย้ายรายชื่อพนักงาน ${seedResult.studentsCount} คน & ข้อมูลระบบเข้า Firebase ครบ 100%!`);
-            }
-          } catch (seedErr) {
-            console.warn('Auto-seed check notice:', seedErr);
-          }
-        }
-
-        // Attach real-time Firestore listeners for all 5 collections (merging any pending records)
-        unsubscribeRealtime = subscribeToFirebaseRealtime({
-          onStudents: (rows) => setStudents(mergeStudentsWithPending(rows)),
-          onCars: (rows) => setCars(mergeCarsWithPending(rows)),
-          onScans: (rows) => {
-            const merged = deduplicateAndFixScanIds(mergeScansWithPending(rows));
-            if (hasLoadedInitialScansRef.current) {
-              const nowTs = Date.now();
-              const newRemoteScan = merged.find((s) => {
-                const key = s.scanId || s.id;
-                return (
-                  key &&
-                  !seenScanIdsRef.current.has(key) &&
-                  typeof s.timestamp === 'number' &&
-                  nowTs - s.timestamp < 20000
-                );
-              });
-              if (newRemoteScan) {
-                showToast(
-                  `📡 ซิงค์รายการสแกนเรียลไทม์: ${newRemoteScan.name} (${newRemoteScan.scanType || 'ขึ้นรถ'})`
-                );
-              }
-            }
-            const nextSeen = new Set<string>();
-            merged.forEach((s) => {
-              const key = s.scanId || s.id;
-              if (key) nextSeen.add(key);
-            });
-            seenScanIdsRef.current = nextSeen;
-            hasLoadedInitialScansRef.current = true;
-            setScans(merged);
-          },
-          onUsers: (rows) => setUsers(rows),
-          onSettings: (rows) => setSettings(rows),
-        });
-      } else {
-        hasLoadedInitialScansRef.current = false;
-        seenScanIdsRef.current = new Set();
-        setStudents(getPendingStudents());
-        setCars(getPendingCars());
-        setScans(getPendingScans());
-        setUsers([]);
-        setSettings([]);
       }
     });
 
     return () => {
       unsubscribeAuth();
-      if (unsubscribeRealtime) unsubscribeRealtime();
     };
   }, [showToast]);
 
@@ -778,10 +781,7 @@ export default function App() {
                 : `✓ บันทึกลง Firebase ทันที: ${student.name} (ขึ้นรถ)`
             );
           } else if (res.isOfflineQueued) {
-            showToast(`⏳ บันทึกลงคิวรอซิงค์ Firebase (กรุณาเข้าสู่ระบบ Google)`);
-            if (source !== 'camera') {
-              setIsFirebaseModalOpen(true);
-            }
+            showToast(`⏳ เก็บข้อมูลในเครื่องแล้ว (รอเชื่อมต่ออินเทอร์เน็ตเพื่อซิงค์ขึ้น Firebase)`);
           }
         })
         .catch((err) => {
@@ -833,8 +833,7 @@ export default function App() {
   // Handle Simulate Scan
   const handleSimulateScan = useCallback(() => {
     if (studentsRef.current.length === 0) {
-      showToast('⚠️ กรุณาเข้าสู่ระบบ Google เพื่อดึงรายชื่อพนักงาน 300 คนจาก Firebase ก่อน');
-      setIsFirebaseModalOpen(true);
+      showToast('⚠️ กำลังดึงรายชื่อพนักงานจาก Firebase...');
       return;
     }
     const picked = studentsRef.current[Math.floor(Math.random() * studentsRef.current.length)];

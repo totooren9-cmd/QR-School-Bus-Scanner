@@ -135,6 +135,10 @@ export function isBootstrappedAdminEmail(email?: string | null): boolean {
 }
 
 export function isFirebaseReady(): boolean {
+  return Boolean(db && firebaseApp);
+}
+
+export function isUserAuthenticated(): boolean {
   return Boolean(auth.currentUser && auth.currentUser.emailVerified);
 }
 
@@ -203,19 +207,8 @@ function formatTimestampField(ts: unknown): string | undefined {
 }
 
 function buildScopedCollectionQuery(collectionName: string): Query<DocumentData> {
-  const user = auth.currentUser;
   const colRef = collection(db, collectionName);
-  if (!user) {
-    throw new Error('Authentication required before querying Firestore');
-  }
-  if (isBootstrappedAdminEmail(user.email)) {
-    return colRef;
-  }
-  if (collectionName === 'scans') {
-    // Allow all verified devices/operators to sync live boarding/alighting scans in real time
-    return query(colRef, where('scan_type', 'in', ['ขึ้นรถ', 'ลงรถ']));
-  }
-  return query(colRef, where('ownerId', '==', user.uid));
+  return colRef;
 }
 
 // ==========================================
@@ -572,10 +565,6 @@ export async function fetchStudentsFromFirebase(): Promise<{
   data: Student[];
   error?: string;
 }> {
-  if (!auth.currentUser) {
-    return { success: false, data: [], error: 'กรุณาเข้าสู่ระบบ Google เพื่อดึงข้อมูลจาก Firebase' };
-  }
-
   try {
     const q = buildScopedCollectionQuery('students');
     const snapshot = await getDocs(q);
@@ -583,7 +572,8 @@ export async function fetchStudentsFromFirebase(): Promise<{
     list.sort((a, b) => a.id.localeCompare(b.id));
     return { success: true, data: list };
   } catch (err) {
-    handleFirestoreError(err, OperationType.LIST, 'students');
+    console.warn('fetchStudentsFromFirebase warning:', err);
+    return { success: false, data: [] };
   }
 }
 
@@ -591,9 +581,7 @@ export async function upsertStudentToFirebase(
   student: Student
 ): Promise<{ success: boolean; error?: string; data?: Student }> {
   const user = auth.currentUser;
-  if (!user) {
-    return { success: false, error: 'กรุณาเข้าสู่ระบบ Google เพื่อบันทึกข้อมูลลง Firebase' };
-  }
+  const ownerId = user?.uid || 'system';
 
   const studentId = sanitizeFirestoreId(
     student.student_id || student.studentId || student.id || student.studentCode || '',
@@ -612,14 +600,14 @@ export async function upsertStudentToFirebase(
 
     if (existingSnap.exists()) {
       const existingData = existingSnap.data();
-      const ownerId = String(existingData.ownerId || user.uid);
-      const payload = buildStudentPayload({ ...student, id: studentId, student_id: studentId }, ownerId, false);
+      const existingOwner = String(existingData.ownerId || ownerId);
+      const payload = buildStudentPayload({ ...student, id: studentId, student_id: studentId }, existingOwner, false);
       delete payload.ownerId;
       delete payload.student_id;
       await updateDoc(docRef, payload);
       return { success: true, data: { ...student, id: studentId, student_id: studentId } };
     } else {
-      const payload = buildStudentPayload({ ...student, id: studentId, student_id: studentId }, user.uid, true);
+      const payload = buildStudentPayload({ ...student, id: studentId, student_id: studentId }, ownerId, true);
       await setDoc(docRef, payload);
       return { success: true, data: { ...student, id: studentId, student_id: studentId } };
     }
@@ -631,9 +619,6 @@ export async function upsertStudentToFirebase(
 export async function deleteStudentFromFirebase(
   studentId: string
 ): Promise<{ success: boolean; error?: string }> {
-  if (!auth.currentUser) {
-    return { success: false, error: 'กรุณาเข้าสู่ระบบ Google ก่อนลบข้อมูล' };
-  }
   const cleanId = sanitizeFirestoreId(studentId, 'STD');
   const path = `students/${cleanId}`;
   try {
@@ -652,10 +637,6 @@ export async function fetchCarsFromFirebase(): Promise<{
   data: Car[];
   error?: string;
 }> {
-  if (!auth.currentUser) {
-    return { success: false, data: [], error: 'กรุณาเข้าสู่ระบบ Google เพื่อดึงข้อมูลรถ' };
-  }
-
   try {
     const q = buildScopedCollectionQuery('cars');
     const snapshot = await getDocs(q);
@@ -663,7 +644,8 @@ export async function fetchCarsFromFirebase(): Promise<{
     list.sort((a, b) => a.carID.localeCompare(b.carID));
     return { success: true, data: list };
   } catch (err) {
-    handleFirestoreError(err, OperationType.LIST, 'cars');
+    console.warn('fetchCarsFromFirebase warning:', err);
+    return { success: false, data: [] };
   }
 }
 
@@ -671,8 +653,9 @@ export async function ensureCarExistsInFirebase(
   carId: string,
   plateNumber = '1กข 1234'
 ): Promise<void> {
+  if (!carId) return;
   const user = auth.currentUser;
-  if (!user || !carId) return;
+  const ownerId = user?.uid || 'system';
 
   const cleanCarId = sanitizeFirestoreId(carId, 'CAR');
   const docRef = doc(db, 'cars', cleanCarId);
@@ -691,7 +674,7 @@ export async function ensureCarExistsInFirebase(
           capacity: 60,
           status: 'ใช้งาน',
         },
-        user.uid,
+        ownerId,
         true
       );
       await setDoc(docRef, payload);
@@ -705,9 +688,7 @@ export async function upsertCarToFirebase(
   car: Car
 ): Promise<{ success: boolean; error?: string; data?: Car }> {
   const user = auth.currentUser;
-  if (!user) {
-    return { success: false, error: 'กรุณาเข้าสู่ระบบ Google ก่อนบันทึกรถ' };
-  }
+  const ownerId = user?.uid || 'system';
 
   const carId = sanitizeFirestoreId(car.carID, 'CAR');
   const path = `cars/${carId}`;
@@ -716,14 +697,14 @@ export async function upsertCarToFirebase(
     const existingSnap = await getDoc(docRef);
 
     if (existingSnap.exists()) {
-      const ownerId = String(existingSnap.data().ownerId || user.uid);
-      const payload = buildCarPayload({ ...car, carID: carId }, ownerId, false);
+      const existingOwner = String(existingSnap.data().ownerId || ownerId);
+      const payload = buildCarPayload({ ...car, carID: carId }, existingOwner, false);
       delete payload.ownerId;
       delete payload.car_id;
       await updateDoc(docRef, payload);
       return { success: true, data: { ...car, carID: carId } };
     } else {
-      const payload = buildCarPayload({ ...car, carID: carId }, user.uid, true);
+      const payload = buildCarPayload({ ...car, carID: carId }, ownerId, true);
       await setDoc(docRef, payload);
       return { success: true, data: { ...car, carID: carId } };
     }
@@ -735,9 +716,6 @@ export async function upsertCarToFirebase(
 export async function deleteCarFromFirebase(
   carId: string
 ): Promise<{ success: boolean; error?: string }> {
-  if (!auth.currentUser) {
-    return { success: false, error: 'กรุณาเข้าสู่ระบบ Google ก่อนลบข้อมูลรถ' };
-  }
   const cleanId = sanitizeFirestoreId(carId, 'CAR');
   const path = `cars/${cleanId}`;
   try {
@@ -986,10 +964,6 @@ export async function fetchScansFromFirebase(): Promise<{
   data: ScanRecord[];
   error?: string;
 }> {
-  if (!auth.currentUser) {
-    return { success: false, data: [], error: 'กรุณาเข้าสู่ระบบ Google เพื่อดึงข้อมูลสแกน' };
-  }
-
   try {
     const q = buildScopedCollectionQuery('scans');
     const snapshot = await getDocs(q);
@@ -997,7 +971,8 @@ export async function fetchScansFromFirebase(): Promise<{
     list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     return { success: true, data: list };
   } catch (err) {
-    handleFirestoreError(err, OperationType.LIST, 'scans');
+    console.warn('fetchScansFromFirebase warning:', err);
+    return { success: false, data: [], error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -1011,16 +986,7 @@ export async function insertScanToFirebase(
   }
 ): Promise<{ success: boolean; error?: string; isOfflineQueued?: boolean }> {
   const user = auth.currentUser;
-  if (!user || !user.emailVerified) {
-    if (!options?.skipQueue) {
-      savePendingScan(scan);
-    }
-    return {
-      success: false,
-      error: 'ยังไม่ได้เข้าสู่ระบบ Firebase (ค้างส่งในคิวอัตโนมัติ)',
-      isOfflineQueued: true,
-    };
-  }
+  const ownerId = user?.uid || 'system';
 
   const scanId = sanitizeFirestoreId(scan.scanId || scan.id || '', 'SCN');
   const path = `scans/${scanId}`;
@@ -1030,18 +996,18 @@ export async function insertScanToFirebase(
 
     // Write the scan document immediately without waiting for secondary student/car reads
     if (options?.isNewScan) {
-      const payload = buildScanPayload({ ...scan, id: scanId, scanId }, user.uid, true);
+      const payload = buildScanPayload({ ...scan, id: scanId, scanId }, ownerId, true);
       await setDoc(docRef, payload);
     } else {
       const existingSnap = await getDoc(docRef);
       if (existingSnap.exists()) {
-        const ownerId = String(existingSnap.data().ownerId || user.uid);
-        const payload = buildScanPayload({ ...scan, id: scanId, scanId }, ownerId, false);
+        const existingOwner = String(existingSnap.data().ownerId || ownerId);
+        const payload = buildScanPayload({ ...scan, id: scanId, scanId }, existingOwner, false);
         delete payload.ownerId;
         delete payload.scan_id;
         await updateDoc(docRef, payload);
       } else {
-        const payload = buildScanPayload({ ...scan, id: scanId, scanId }, user.uid, true);
+        const payload = buildScanPayload({ ...scan, id: scanId, scanId }, ownerId, true);
         await setDoc(docRef, payload);
       }
     }
@@ -1240,10 +1206,6 @@ export function subscribeToFirebaseRealtime(handlers: {
   onUsers?: (users: AppUser[]) => void;
   onSettings?: (settings: SystemSetting[]) => void;
 }): () => void {
-  if (!auth.currentUser || !auth.currentUser.emailVerified) {
-    return () => {};
-  }
-
   const unsubs: Unsubscribe[] = [];
 
   if (handlers.onStudents) {
@@ -1291,7 +1253,7 @@ export function subscribeToFirebaseRealtime(handlers: {
     );
   }
 
-  if (handlers.onUsers) {
+  if (handlers.onUsers && auth.currentUser && auth.currentUser.emailVerified) {
     const qUsers = buildScopedCollectionQuery('users');
     unsubs.push(
       onSnapshot(
@@ -1306,7 +1268,7 @@ export function subscribeToFirebaseRealtime(handlers: {
     );
   }
 
-  if (handlers.onSettings) {
+  if (handlers.onSettings && auth.currentUser && auth.currentUser.emailVerified) {
     const qSettings = buildScopedCollectionQuery('settings');
     unsubs.push(
       onSnapshot(
@@ -1334,13 +1296,13 @@ export async function importStudentsBatchToFirebase(
   onProgress?: (done: number, total: number) => void
 ): Promise<{ success: boolean; count: number }> {
   const user = auth.currentUser;
-  if (!user) throw new Error('กรุณาเข้าสู่ระบบ Google ก่อนนำเข้าข้อมูลพนักงาน');
+  const ownerId = user?.uid || 'system';
 
   const existingSnap = await getDocs(buildScopedCollectionQuery('students'));
   const existingMap = new Map<string, string>();
   existingSnap.docs.forEach((d) => {
     const data = d.data();
-    existingMap.set(d.id, String(data.ownerId || user.uid));
+    existingMap.set(d.id, String(data.ownerId || ownerId));
   });
 
   const chunkSize = 200;
@@ -1363,7 +1325,7 @@ export async function importStudentsBatchToFirebase(
         delete payload.student_id;
         batch.update(docRef, payload);
       } else {
-        const payload = buildStudentPayload({ ...student, id: studentId, student_id: studentId }, user.uid, true);
+        const payload = buildStudentPayload({ ...student, id: studentId, student_id: studentId }, ownerId, true);
         batch.set(docRef, payload);
       }
     }
@@ -1393,9 +1355,7 @@ export async function seedAllInitialDataToFirebase(options?: {
   scansCount: number;
 }> {
   const user = auth.currentUser;
-  if (!user || !user.emailVerified) {
-    throw new Error('กรุณาเข้าสู่ระบบด้วย Google ก่อนย้ายข้อมูลเข้า Firebase');
-  }
+  const ownerId = user?.uid || 'system';
 
   const includeSampleScans = options?.includeSampleScans ?? false;
   const totalItems =
@@ -1414,7 +1374,7 @@ export async function seedAllInitialDataToFirebase(options?: {
   report('กำลังสร้างตาราง cars (รถรับส่ง 5 คัน)...');
   const existingCarsSnap = await getDocs(buildScopedCollectionQuery('cars'));
   const existingCarOwners = new Map<string, string>();
-  existingCarsSnap.docs.forEach((d) => existingCarOwners.set(d.id, String(d.data().ownerId || user.uid)));
+  existingCarsSnap.docs.forEach((d) => existingCarOwners.set(d.id, String(d.data().ownerId || ownerId)));
 
   {
     const batch = writeBatch(db);
@@ -1428,7 +1388,7 @@ export async function seedAllInitialDataToFirebase(options?: {
         delete payload.car_id;
         batch.update(docRef, payload);
       } else {
-        batch.set(docRef, buildCarPayload({ ...car, carID: carId }, user.uid, true));
+        batch.set(docRef, buildCarPayload({ ...car, carID: carId }, ownerId, true));
       }
     }
     await batch.commit();
@@ -1440,7 +1400,7 @@ export async function seedAllInitialDataToFirebase(options?: {
   report('กำลังย้ายรายชื่อพนักงานทั้งหมด 300 คน เข้า Firebase...');
   const existingStuSnap = await getDocs(buildScopedCollectionQuery('students'));
   const existingStuOwners = new Map<string, string>();
-  existingStuSnap.docs.forEach((d) => existingStuOwners.set(d.id, String(d.data().ownerId || user.uid)));
+  existingStuSnap.docs.forEach((d) => existingStuOwners.set(d.id, String(d.data().ownerId || ownerId)));
 
   const studentChunkSize = 150;
   for (let i = 0; i < FIREBASE_STUDENTS.length; i += studentChunkSize) {
@@ -1456,7 +1416,7 @@ export async function seedAllInitialDataToFirebase(options?: {
         delete payload.student_id;
         batch.update(docRef, payload);
       } else {
-        batch.set(docRef, buildStudentPayload({ ...stu, id: studentId, student_id: studentId }, user.uid, true));
+        batch.set(docRef, buildStudentPayload({ ...stu, id: studentId, student_id: studentId }, ownerId, true));
       }
     }
     await batch.commit();
@@ -1464,15 +1424,15 @@ export async function seedAllInitialDataToFirebase(options?: {
     report(`ย้ายรายชื่อพนักงานแล้ว ${Math.min(i + chunk.length, FIREBASE_STUDENTS.length)} / ${FIREBASE_STUDENTS.length} คน`);
   }
 
-  // 3. Users (3 docs)
-  report('กำลังสร้างตาราง users (ผู้ใช้งานระบบ)...');
-  const existingUsersSnap = await getDocs(buildScopedCollectionQuery('users'));
-  const existingUserOwners = new Map<string, string>();
-  existingUsersSnap.docs.forEach((d) => existingUserOwners.set(d.id, String(d.data().ownerId || user.uid)));
-
-  const isAdmin = isBootstrappedAdminEmail(user.email);
+  // 3. Users (3 docs) - Only if verified admin user
   let seededUsersCount = 0;
-  {
+  if (user && user.emailVerified) {
+    report('กำลังสร้างตาราง users (ผู้ใช้งานระบบ)...');
+    const existingUsersSnap = await getDocs(buildScopedCollectionQuery('users'));
+    const existingUserOwners = new Map<string, string>();
+    existingUsersSnap.docs.forEach((d) => existingUserOwners.set(d.id, String(d.data().ownerId || ownerId)));
+
+    const isAdmin = isBootstrappedAdminEmail(user.email);
     const batch = writeBatch(db);
     for (const rawUser of FIREBASE_USERS) {
       const role = rawUser.role as 'Admin' | 'Staff' | 'Viewer';
@@ -1496,7 +1456,7 @@ export async function seedAllInitialDataToFirebase(options?: {
         delete payload.user_id;
         batch.update(docRef, payload);
       } else {
-        batch.set(docRef, buildAppUserPayload(appUser, user.uid, true));
+        batch.set(docRef, buildAppUserPayload(appUser, ownerId, true));
       }
       seededUsersCount++;
     }
@@ -1507,13 +1467,13 @@ export async function seedAllInitialDataToFirebase(options?: {
     report(`สร้างตาราง users สำเร็จ (${seededUsersCount} บัญชี)`);
   }
 
-  // 4. Settings (10 docs)
-  report('กำลังสร้างตาราง settings (ตั้งค่าระบบ 10 รายการ)...');
-  const existingSettingsSnap = await getDocs(buildScopedCollectionQuery('settings'));
-  const existingSettingOwners = new Map<string, string>();
-  existingSettingsSnap.docs.forEach((d) => existingSettingOwners.set(d.id, String(d.data().ownerId || user.uid)));
+  // 4. Settings (10 docs) - Only if verified user
+  if (user && user.emailVerified) {
+    report('กำลังสร้างตาราง settings (ตั้งค่าระบบ 10 รายการ)...');
+    const existingSettingsSnap = await getDocs(buildScopedCollectionQuery('settings'));
+    const existingSettingOwners = new Map<string, string>();
+    existingSettingsSnap.docs.forEach((d) => existingSettingOwners.set(d.id, String(d.data().ownerId || ownerId)));
 
-  {
     const batch = writeBatch(db);
     for (const s of FIREBASE_SETTINGS) {
       const key = sanitizeFirestoreId(s.key, 'setting');
@@ -1525,7 +1485,7 @@ export async function seedAllInitialDataToFirebase(options?: {
         delete payload.key;
         batch.update(docRef, payload);
       } else {
-        batch.set(docRef, buildSettingPayload({ ...s, key }, user.uid, true));
+        batch.set(docRef, buildSettingPayload({ ...s, key }, ownerId, true));
       }
     }
     await batch.commit();
@@ -1539,7 +1499,7 @@ export async function seedAllInitialDataToFirebase(options?: {
     report('กำลังนำเข้าประวัติสแกนตัวอย่าง...');
     const existingScansSnap = await getDocs(buildScopedCollectionQuery('scans'));
     const existingScanOwners = new Map<string, string>();
-    existingScansSnap.docs.forEach((d) => existingScanOwners.set(d.id, String(d.data().ownerId || user.uid)));
+    existingScansSnap.docs.forEach((d) => existingScanOwners.set(d.id, String(d.data().ownerId || ownerId)));
 
     const scanChunkSize = 150;
     for (let i = 0; i < FIREBASE_SCANS.length; i += scanChunkSize) {
@@ -1555,7 +1515,7 @@ export async function seedAllInitialDataToFirebase(options?: {
           delete payload.scan_id;
           batch.update(docRef, payload);
         } else {
-          batch.set(docRef, buildScanPayload({ ...sc, id: scanId, scanId }, user.uid, true));
+          batch.set(docRef, buildScanPayload({ ...sc, id: scanId, scanId }, ownerId, true));
         }
       }
       await batch.commit();
@@ -1577,23 +1537,23 @@ export async function seedAllInitialDataToFirebase(options?: {
 export async function ensureDatabaseSeededIfEmpty(
   onProgress?: (progress: MigrationProgress) => void
 ): Promise<{ seeded: boolean; studentsCount: number }> {
-  const user = auth.currentUser;
-  if (!user || !user.emailVerified || !isBootstrappedAdminEmail(user.email)) {
+  try {
+    const [stuSnap, carSnap] = await Promise.all([
+      getDocs(buildScopedCollectionQuery('students')),
+      getDocs(buildScopedCollectionQuery('cars')),
+    ]);
+
+    if (stuSnap.empty && carSnap.empty) {
+      const res = await seedAllInitialDataToFirebase({
+        includeSampleScans: false,
+        onProgress,
+      });
+      return { seeded: true, studentsCount: res.studentsCount };
+    }
+
+    return { seeded: false, studentsCount: stuSnap.size };
+  } catch (err) {
+    console.warn('ensureDatabaseSeededIfEmpty notice:', err);
     return { seeded: false, studentsCount: 0 };
   }
-
-  const [stuSnap, carSnap] = await Promise.all([
-    getDocs(buildScopedCollectionQuery('students')),
-    getDocs(buildScopedCollectionQuery('cars')),
-  ]);
-
-  if (stuSnap.empty && carSnap.empty) {
-    const res = await seedAllInitialDataToFirebase({
-      includeSampleScans: false,
-      onProgress,
-    });
-    return { seeded: true, studentsCount: res.studentsCount };
-  }
-
-  return { seeded: false, studentsCount: stuSnap.size };
 }
