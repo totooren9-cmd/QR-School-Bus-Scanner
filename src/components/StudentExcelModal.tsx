@@ -51,7 +51,7 @@ export const StudentExcelModal: React.FC<StudentExcelModalProps> = ({
     if (!file) return;
     const ext = file.name.split('.').pop()?.toLowerCase();
     if (!['xlsx', 'xls', 'csv'].includes(ext || '')) {
-      alert('กรุณาเลือกไฟล์ Excel (.xlsx, .xls) หรือ CSV (.csv)');
+      setParseErrors(['กรุณาเลือกไฟล์ Excel (.xlsx, .xls) หรือ CSV (.csv)']);
       return;
     }
 
@@ -114,7 +114,7 @@ export const StudentExcelModal: React.FC<StudentExcelModalProps> = ({
       handleResetFile();
       onClose();
     } catch (err: any) {
-      alert(`นำเข้าไม่สำเร็จ: ${err.message || 'โปรดลองใหม่อีกครั้ง'}`);
+      setParseErrors([`นำเข้าไม่สำเร็จ: ${err.message || 'โปรดลองใหม่อีกครั้ง'}`]);
     } finally {
       setIsSubmitting(false);
     }
@@ -154,13 +154,13 @@ export const StudentExcelModal: React.FC<StudentExcelModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-white flex items-center gap-2">
-                จัดการนำเข้า-ส่งออก Excel นักเรียน
+                จัดการนำเข้า-ส่งออก Excel พนักงาน
                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-normal">
                   .xlsx / .csv
                 </span>
               </h3>
               <p className="text-xs text-slate-400">
-                นำเข้าไฟล์รายชื่อนักเรียนจากโปรแกรม Excel และดาวน์โหลดแม่แบบสำหรับกรอกข้อมูล
+                นำเข้าไฟล์รายชื่อพนักงานจากโปรแกรม Excel และดาวน์โหลดแม่แบบสำหรับกรอกข้อมูล
               </p>
             </div>
           </div>
@@ -239,7 +239,7 @@ export const StudentExcelModal: React.FC<StudentExcelModalProps> = ({
                   </h4>
                   <p className="text-xs text-slate-400 max-w-md mb-4">
                     หรือคลิกเพื่อเลือกไฟล์จากคอมพิวเตอร์ของคุณ ระบบจะตรวจจับคอลัมน์ชื่อ รหัส
-                    ชั้น หอพัก และสายรถให้อัตโนมัติ
+                    แผนก หอพัก และสายรถให้อัตโนมัติ
                   </p>
                   <div className="flex items-center gap-2">
                     <button
@@ -319,7 +319,7 @@ export const StudentExcelModal: React.FC<StudentExcelModalProps> = ({
                         +
                       </div>
                       <div>
-                        <div className="text-[11px] text-slate-400">นักเรียนใหม่</div>
+                        <div className="text-[11px] text-slate-400">พนักงานใหม่</div>
                         <div className="text-base font-bold text-blue-400">
                           {newCount} คน
                         </div>
@@ -381,7 +381,7 @@ export const StudentExcelModal: React.FC<StudentExcelModalProps> = ({
                           <th className="py-2 px-3">รหัส</th>
                           <th className="py-2 px-3">ชื่อ-นามสกุล</th>
                           <th className="py-2 px-3">ชื่อเล่น</th>
-                          <th className="py-2 px-3">ระดับชั้น</th>
+                          <th className="py-2 px-3">แผนก</th>
                           <th className="py-2 px-3">หอพัก</th>
                           <th className="py-2 px-3">สายรถ</th>
                           <th className="py-2 px-3">จุดขึ้นรถ</th>
@@ -483,7 +483,7 @@ export const StudentExcelModal: React.FC<StudentExcelModalProps> = ({
                     </div>
                     <div>
                       <h4 className="text-base font-bold text-white">
-                        ไฟล์แม่แบบรายชื่อนักเรียน (Student Template)
+                        ไฟล์แม่แบบรายชื่อพนักงาน (Employee Template)
                       </h4>
                       <p className="text-xs text-slate-400">
                         ดาวน์โหลดไฟล์แม่แบบที่มีคอลัมน์มาตรฐานครบถ้วน พร้อมตัวอย่างข้อมูล 5 แถว
@@ -516,7 +516,7 @@ export const StudentExcelModal: React.FC<StudentExcelModalProps> = ({
                       className="px-4 py-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 font-semibold text-xs border border-emerald-500/30 flex items-center gap-2 transition-all"
                     >
                       <Users className="w-4 h-4 text-emerald-400" />
-                      ส่งออกข้อมูลนักเรียนปัจจุบัน ({currentStudents.length} คน)
+                      ส่งออกข้อมูลพนักงานปัจจุบัน ({currentStudents.length} คน)
                     </button>
                   </div>
                 </div>
@@ -541,16 +541,16 @@ export const StudentExcelModal: React.FC<StudentExcelModalProps> = ({
                     </thead>
                     <tbody className="divide-y divide-white/5 text-slate-300">
                       <tr>
-                        <td className="py-2 px-3 font-mono font-bold text-amber-300">รหัสนักเรียน</td>
+                        <td className="py-2 px-3 font-mono font-bold text-amber-300">รหัส QR (ID)</td>
                         <td className="py-2 px-3 text-rose-400 font-medium">จำเป็น*</td>
                         <td className="py-2 px-3 font-mono">10001</td>
-                        <td className="py-2 px-3 text-slate-400">รหัสประจำตัว หรือเลขสแกน QR Code</td>
+                        <td className="py-2 px-3 text-slate-400">รหัสประจำตัวสำหรับสแกน QR Code</td>
                       </tr>
                       <tr>
                         <td className="py-2 px-3 font-mono font-bold text-amber-300">ชื่อ-นามสกุล</td>
                         <td className="py-2 px-3 text-rose-400 font-medium">จำเป็น*</td>
-                        <td className="py-2 px-3">เด็กชายธนภัทร รัตนเวช</td>
-                        <td className="py-2 px-3 text-slate-400">ชื่อและนามสกุลเต็มของนักเรียน</td>
+                        <td className="py-2 px-3">นายธนภัทร รัตนเวช</td>
+                        <td className="py-2 px-3 text-slate-400">ชื่อและนามสกุลเต็มของพนักงาน</td>
                       </tr>
                       <tr>
                         <td className="py-2 px-3 font-mono text-slate-200">ชื่อเล่น</td>
@@ -559,22 +559,16 @@ export const StudentExcelModal: React.FC<StudentExcelModalProps> = ({
                         <td className="py-2 px-3 text-slate-400">ชื่อเล่นสำหรับแสดงผล</td>
                       </tr>
                       <tr>
-                        <td className="py-2 px-3 font-mono text-slate-200">ระดับชั้น</td>
+                        <td className="py-2 px-3 font-mono text-slate-200">แผนก</td>
                         <td className="py-2 px-3 text-slate-400">แนะนำ</td>
-                        <td className="py-2 px-3">ม.1</td>
-                        <td className="py-2 px-3 text-slate-400">ระดับชั้นเรียน เช่น ม.1, ป.6</td>
+                        <td className="py-2 px-3">ฝ่ายผลิต</td>
+                        <td className="py-2 px-3 text-slate-400">แผนกหรือฝ่ายงาน เช่น ฝ่ายผลิต, บัญชี</td>
                       </tr>
                       <tr>
-                        <td className="py-2 px-3 font-mono text-slate-200">ห้อง</td>
+                        <td className="py-2 px-3 font-mono text-slate-200">รหัสพนักงาน</td>
                         <td className="py-2 px-3 text-slate-500">ไม่จำเป็น</td>
-                        <td className="py-2 px-3">1</td>
-                        <td className="py-2 px-3 text-slate-400">เลขห้องเรียน</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-3 font-mono text-slate-200">เลขที่</td>
-                        <td className="py-2 px-3 text-slate-500">ไม่จำเป็น</td>
-                        <td className="py-2 px-3">5</td>
-                        <td className="py-2 px-3 text-slate-400">เลขที่นั่งในห้อง</td>
+                        <td className="py-2 px-3">101</td>
+                        <td className="py-2 px-3 text-slate-400">เลขรหัสพนักงาน (ตัวเลข)</td>
                       </tr>
                       <tr>
                         <td className="py-2 px-3 font-mono text-slate-200">หอพัก</td>
@@ -592,16 +586,10 @@ export const StudentExcelModal: React.FC<StudentExcelModalProps> = ({
                         <td className="py-2 px-3 font-mono text-slate-200">จุดขึ้นรถ</td>
                         <td className="py-2 px-3 text-slate-500">ไม่จำเป็น</td>
                         <td className="py-2 px-3">จุดรับส่งหน้าหอ A</td>
-                        <td className="py-2 px-3 text-slate-400">จุดจอดรับส่งนักเรียน</td>
+                        <td className="py-2 px-3 text-slate-400">จุดจอดรับส่งพนักงาน</td>
                       </tr>
                       <tr>
-                        <td className="py-2 px-3 font-mono text-slate-200">ชื่อผู้ปกครอง</td>
-                        <td className="py-2 px-3 text-slate-500">ไม่จำเป็น</td>
-                        <td className="py-2 px-3">คุณสมศักดิ์ รัตนเวช</td>
-                        <td className="py-2 px-3 text-slate-400">ชื่อผู้ปกครองหรือเบอร์ติดต่อฉุกเฉิน</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-3 font-mono text-slate-200">เบอร์โทรผู้ปกครอง</td>
+                        <td className="py-2 px-3 font-mono text-slate-200">เบอร์โทรศัพท์</td>
                         <td className="py-2 px-3 text-slate-400">แนะนำ</td>
                         <td className="py-2 px-3 font-mono">081-234-5678</td>
                         <td className="py-2 px-3 text-slate-400">เบอร์โทรศัพท์สำหรับโทรออกหรือแจ้งเตือน</td>
@@ -610,7 +598,7 @@ export const StudentExcelModal: React.FC<StudentExcelModalProps> = ({
                         <td className="py-2 px-3 font-mono text-slate-200">สถานะ</td>
                         <td className="py-2 px-3 text-slate-500">ไม่จำเป็น</td>
                         <td className="py-2 px-3">ปกติ</td>
-                        <td className="py-2 px-3 text-slate-400">สถานะนักเรียน เช่น ปกติ, ลา</td>
+                        <td className="py-2 px-3 text-slate-400">สถานะพนักงาน เช่น ปกติ, ลา</td>
                       </tr>
                     </tbody>
                   </table>

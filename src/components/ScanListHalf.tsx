@@ -1,7 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { Calendar, Clock, MapPin, LogIn, LogOut } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { Calendar, Clock, MapPin, LogIn, LogOut, ChevronDown, ChevronUp } from 'lucide-react';
 import { ScanRecord, Car, Student } from '../types';
 import { DailySummaryModal } from './DailySummaryModal';
+
+const AUTO_COLLAPSE_DELAY_MS = 5000;
 
 interface ScanListHalfProps {
   scans: ScanRecord[];
@@ -14,6 +16,7 @@ interface ScanListHalfProps {
   students?: Student[];
   onOpenDailyReport?: () => void;
   onOpenMap?: () => void;
+  cameraActive?: boolean;
 }
 
 export const ScanListHalf: React.FC<ScanListHalfProps> = ({
@@ -27,11 +30,81 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
   students = [],
   onOpenDailyReport,
   onOpenMap,
+  cameraActive = false,
 }) => {
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [showDailyReport, setShowDailyReport] = useState(false);
+  const [activityTick, setActivityTick] = useState(0);
+
+  const touchStartYRef = useRef<number | null>(null);
+  const prevScanCountRef = useRef<number>(scans.length);
+
+  const bumpActivity = useCallback(() => {
+    setActivityTick((t) => t + 1);
+  }, []);
+
+  // Auto-collapse when camera starts scanning
+  useEffect(() => {
+    if (cameraActive) {
+      setIsCollapsed(true);
+      setSearchOpen(false);
+    }
+  }, [cameraActive]);
+
+  // Reset idle countdown when a new scan arrives while expanded
+  useEffect(() => {
+    if (scans.length > prevScanCountRef.current && !isCollapsed) {
+      bumpActivity();
+    }
+    prevScanCountRef.current = scans.length;
+  }, [scans.length, isCollapsed, bumpActivity]);
+
+  // Auto-collapse after inactivity when expanded and not searching or viewing modals
+  useEffect(() => {
+    if (isCollapsed || searchOpen || showConfirmClear || showDailyReport) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setIsCollapsed(true);
+    }, AUTO_COLLAPSE_DELAY_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [isCollapsed, searchOpen, showConfirmClear, showDailyReport, activityTick]);
+
+  const handleToggleCollapse = () => {
+    setIsCollapsed((prev) => {
+      const next = !prev;
+      if (next) {
+        setSearchOpen(false);
+      } else {
+        bumpActivity();
+      }
+      return next;
+    });
+  };
+
+  const handleHeaderTouchStart = (e: React.TouchEvent) => {
+    touchStartYRef.current = e.touches[0]?.clientY ?? null;
+  };
+
+  const handleHeaderTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartYRef.current == null) return;
+    const endY = e.changedTouches[0]?.clientY ?? touchStartYRef.current;
+    const deltaY = endY - touchStartYRef.current;
+    touchStartYRef.current = null;
+
+    if (deltaY > 28) {
+      setIsCollapsed(true);
+      setSearchOpen(false);
+    } else if (deltaY < -28) {
+      setIsCollapsed(false);
+      bumpActivity();
+    }
+  };
 
   // Filtered scans
   const filteredScans = useMemo(() => {
@@ -59,24 +132,59 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
   };
 
   return (
-    <div className="list-half">
+    <div
+      className={`list-half ${isCollapsed ? 'collapsed' : ''}`}
+      onPointerDown={bumpActivity}
+      onWheel={bumpActivity}
+    >
       {/* iOS Sheet Grabber */}
-      <div className="sheet-grabber"></div>
+      <div
+        className="sheet-grabber"
+        onClick={handleToggleCollapse}
+        onTouchStart={handleHeaderTouchStart}
+        onTouchEnd={handleHeaderTouchEnd}
+        title={isCollapsed ? 'แตะเพื่อกางรายการสแกนวันนี้' : 'แตะเพื่อพับรายการลง'}
+      ></div>
 
       {/* List Header */}
-      <div className="list-header">
-        <div className="lh-left">
-          <h3>รายการสแกนวันนี้</h3>
-          <span className="lh-count" id="scanCount">
-            {scans.length} รายการ
-          </span>
+      <div
+        className="list-header"
+        onTouchStart={handleHeaderTouchStart}
+        onTouchEnd={handleHeaderTouchEnd}
+      >
+        <div
+          className="lh-left min-w-0 flex-1 pr-2 cursor-pointer select-none"
+          onClick={handleToggleCollapse}
+          title={isCollapsed ? 'แตะเพื่อเปิดดูรายการสแกนวันนี้' : 'แตะเพื่อพับรายการลง (พับอัตโนมัติใน 5 วินาที)'}
+        >
+          <div className="flex items-center gap-1.5">
+            <h3>รายการสแกนวันนี้</h3>
+          </div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="lh-count shrink-0" id="scanCount">
+              {scans.length} รายการ
+            </span>
+            {isCollapsed && scans[0] && (
+              <span className="text-[11px] text-slate-400 truncate">
+                · ล่าสุด: {scans[0].name}
+              </span>
+            )}
+          </div>
         </div>
-        <div className="lh-right">
+        <div className="lh-right shrink-0">
           <button
-            className={`icon-circle ${searchOpen ? 'border-amber-500/50 text-amber-400' : ''}`}
+            className={`icon-circle ${searchOpen && !isCollapsed ? 'border-amber-500/50 text-amber-400' : ''}`}
             id="btnSearch"
             type="button"
-            onClick={() => setSearchOpen((prev) => !prev)}
+            onClick={() => {
+              bumpActivity();
+              if (isCollapsed) {
+                setIsCollapsed(false);
+                setSearchOpen(true);
+              } else {
+                setSearchOpen((prev) => !prev);
+              }
+            }}
             title="ค้นหา"
           >
             🔎
@@ -86,6 +194,7 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
             id="btnDailyReport"
             type="button"
             onClick={() => {
+              bumpActivity();
               if (onOpenDailyReport) onOpenDailyReport();
               setShowDailyReport(true);
             }}
@@ -98,7 +207,10 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
               className="icon-circle map"
               id="btnRouteMap"
               type="button"
-              onClick={onOpenMap}
+              onClick={() => {
+                bumpActivity();
+                onOpenMap();
+              }}
               title="แผนที่เส้นทางรถและพิกัดสแกนจุดรับส่ง"
             >
               🗺️
@@ -108,7 +220,10 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
             className="icon-circle"
             id="btnClear"
             type="button"
-            onClick={handleClearClick}
+            onClick={() => {
+              bumpActivity();
+              handleClearClick();
+            }}
             title="ล้างรายการ"
           >
             🗑️
@@ -116,28 +231,47 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
           <button
             className="icon-circle admin"
             type="button"
-            onClick={onOpenAdmin}
+            onClick={() => {
+              bumpActivity();
+              onOpenAdmin();
+            }}
             title="จัดการระบบ"
           >
             ⚙️
+          </button>
+          <button
+            className="icon-circle"
+            id="btnToggleScanList"
+            type="button"
+            onClick={handleToggleCollapse}
+            title={isCollapsed ? 'ขยายรายการสแกน' : 'พับรายการลง'}
+          >
+            {isCollapsed ? (
+              <ChevronUp className="w-4 h-4 text-emerald-400" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-slate-300" />
+            )}
           </button>
         </div>
       </div>
 
       {/* Collapsible Search Bar */}
-      <div className={`search-bar ${searchOpen ? '' : 'hidden'}`} id="searchBar">
+      <div className={`search-bar ${searchOpen && !isCollapsed ? '' : 'hidden'}`} id="searchBar">
         <input
           id="scanSearch"
           className="search-input"
-          placeholder="ค้นหา ชื่อ / รหัส / ชั้น / สายรถ / สถานะ"
+          placeholder="ค้นหา ชื่อ / รหัส / แผนก / สายรถ / สถานะ"
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          autoFocus={searchOpen}
+          onChange={(e) => {
+            bumpActivity();
+            setSearchQuery(e.target.value);
+          }}
+          autoFocus={searchOpen && !isCollapsed}
         />
       </div>
 
       {/* Scan List */}
-      <div className="scan-list" id="scanList">
+      <div className="scan-list" id="scanList" onScroll={bumpActivity}>
         {filteredScans.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-center text-slate-400 space-y-2">
             <div className="w-14 h-14 rounded-2xl bg-slate-800/80 flex items-center justify-center text-2xl border border-white/5">
@@ -203,7 +337,7 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
                   {/* Status Badge: 'ขึ้นรถ' or 'ลงรถ แล้ว' */}
                   <div className="shrink-0 flex items-center gap-1.5">
                     {scan.dbSaved ? (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1" title="บันทึกในฐานข้อมูล Supabase เรียบร้อย">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1" title="บันทึกในฐานข้อมูล Firebase Firestore เรียบร้อย">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
                         DB
                       </span>
@@ -247,7 +381,7 @@ export const ScanListHalf: React.FC<ScanListHalfProps> = ({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-[11px] text-slate-400 pt-0.5">
                   <div className="flex items-center gap-1 truncate text-slate-300">
                     <MapPin className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                    <span className="truncate">{scan.locationName || 'จุดรับส่งนักเรียน'}</span>
+                    <span className="truncate">{scan.locationName || 'จุดรับส่งพนักงาน'}</span>
                   </div>
                   <div className="flex items-center gap-1.5 font-mono shrink-0 flex-wrap">
                     <span className="bg-slate-900/90 px-2 py-0.5 rounded-md border border-white/5 inline-flex items-center gap-1">

@@ -1,0 +1,351 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ========================================================
+    // Global Primitives & Identity Helpers
+    // ========================================================
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'totooren9@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isOwner() {
+      return isVerifiedUser() && existing().ownerId == request.auth.uid;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isNullableString(val, maxLen) {
+      return val == null || (val is string && val.size() <= maxLen);
+    }
+
+    function isNullableNumber(val) {
+      return val == null || (val is number);
+    }
+
+    // ========================================================
+    // Entity Validation Blueprints (Anti-Update-Gap)
+    // ========================================================
+    function isValidStudent(data) {
+      return data.keys().hasAll([
+        'student_id', 'qr_code', 'name', 'grade', 'dorm', 'car_id', 'status', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'student_id', 'qr_code', 'name', 'nickname', 'grade', 'room', 'className',
+        'seat_number', 'dorm', 'car_id', 'plate', 'pickup_point', 'latitude',
+        'longitude', 'map_link', 'parent_name', 'parent_phone', 'status',
+        'qr_image', 'avatarColor', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.student_id) &&
+      data.qr_code is string && data.qr_code.size() >= 1 && data.qr_code.size() <= 200 &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
+      (!('nickname' in data) || isNullableString(data.nickname, 100)) &&
+      data.grade is string && data.grade.size() <= 50 &&
+      (!('room' in data) || isNullableString(data.room, 50)) &&
+      (!('className' in data) || isNullableString(data.className, 100)) &&
+      (!('seat_number' in data) || isNullableNumber(data.seat_number)) &&
+      data.dorm is string && data.dorm.size() <= 100 &&
+      data.car_id is string && data.car_id.size() <= 128 &&
+      (!('plate' in data) || isNullableString(data.plate, 50)) &&
+      (!('pickup_point' in data) || isNullableString(data.pickup_point, 300)) &&
+      (!('latitude' in data) || isNullableNumber(data.latitude)) &&
+      (!('longitude' in data) || isNullableNumber(data.longitude)) &&
+      (!('map_link' in data) || isNullableString(data.map_link, 500)) &&
+      (!('parent_name' in data) || isNullableString(data.parent_name, 200)) &&
+      (!('parent_phone' in data) || isNullableString(data.parent_phone, 50)) &&
+      data.status is string && data.status.size() >= 1 && data.status.size() <= 50 &&
+      (!('qr_image' in data) || isNullableString(data.qr_image, 500)) &&
+      (!('avatarColor' in data) || isNullableString(data.avatarColor, 50)) &&
+      isValidId(data.ownerId) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidCar(data) {
+      return data.keys().hasAll([
+        'car_id', 'plate_number', 'name', 'capacity', 'status', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'car_id', 'plate_number', 'name', 'route', 'driver_name', 'driver_phone',
+        'attendant_name', 'capacity', 'status', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.car_id) &&
+      data.plate_number is string && data.plate_number.size() >= 1 && data.plate_number.size() <= 50 &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
+      (!('route' in data) || isNullableString(data.route, 200)) &&
+      (!('driver_name' in data) || isNullableString(data.driver_name, 200)) &&
+      (!('driver_phone' in data) || isNullableString(data.driver_phone, 50)) &&
+      (!('attendant_name' in data) || isNullableString(data.attendant_name, 200)) &&
+      data.capacity is number && data.capacity >= 1 && data.capacity <= 500 &&
+      data.status is string && data.status.size() >= 1 && data.status.size() <= 50 &&
+      isValidId(data.ownerId) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidScan(data) {
+      return data.keys().hasAll([
+        'scan_id', 'timestamp', 'scan_date', 'scan_time', 'student_id', 'student_name',
+        'car_id', 'scan_type', 'scan_source', 'latitude', 'longitude', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'scan_id', 'timestamp', 'scan_date', 'dateThai', 'scan_time', 'timeThai',
+        'student_id', 'student_name', 'grade', 'car_id', 'plate_number', 'dorm',
+        'location_name', 'scan_type', 'scan_source', 'scanner_by', 'scanner_device',
+        'scan_result', 'note', 'latitude', 'longitude', 'avatar', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.scan_id) &&
+      data.timestamp is number && data.timestamp >= 0 &&
+      data.scan_date is string && data.scan_date.size() <= 30 &&
+      (!('dateThai' in data) || isNullableString(data.dateThai, 50)) &&
+      data.scan_time is string && data.scan_time.size() <= 30 &&
+      (!('timeThai' in data) || isNullableString(data.timeThai, 50)) &&
+      data.student_id is string && data.student_id.size() <= 128 &&
+      data.student_name is string && data.student_name.size() >= 1 && data.student_name.size() <= 200 &&
+      (!('grade' in data) || isNullableString(data.grade, 100)) &&
+      data.car_id is string && data.car_id.size() <= 128 &&
+      (!('plate_number' in data) || isNullableString(data.plate_number, 50)) &&
+      (!('dorm' in data) || isNullableString(data.dorm, 200)) &&
+      (!('location_name' in data) || isNullableString(data.location_name, 300)) &&
+      data.scan_type in ['ขึ้นรถ', 'ลงรถ'] &&
+      data.scan_source in ['camera', 'upload', 'simulated'] &&
+      (!('scanner_by' in data) || isNullableString(data.scanner_by, 200)) &&
+      (!('scanner_device' in data) || isNullableString(data.scanner_device, 100)) &&
+      (!('scan_result' in data) || isNullableString(data.scan_result, 50)) &&
+      (!('note' in data) || isNullableString(data.note, 500)) &&
+      data.latitude is number &&
+      data.longitude is number &&
+      (!('avatar' in data) || isNullableString(data.avatar, 500)) &&
+      isValidId(data.ownerId) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidAppUser(data) {
+      return data.keys().hasAll([
+        'user_id', 'name', 'email', 'role', 'car_id', 'status', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'user_id', 'name', 'email', 'role', 'car_id', 'status', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.user_id) &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
+      data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+      data.role in ['Admin', 'Staff', 'Viewer'] &&
+      data.car_id is string && data.car_id.size() <= 128 &&
+      data.status is string && data.status.size() >= 1 && data.status.size() <= 50 &&
+      isValidId(data.ownerId) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidSetting(data) {
+      return data.keys().hasAll([
+        'key', 'value', 'description', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'key', 'value', 'description', 'ownerId', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.key) &&
+      data.value is string && data.value.size() <= 500 &&
+      data.description is string && data.description.size() <= 300 &&
+      isValidId(data.ownerId) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidAdminRole(data, uid) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'createdAt']) &&
+        data.uid == uid &&
+        isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+        data.createdAt is timestamp;
+    }
+
+    // ========================================================
+    // Collection Rules
+    // ========================================================
+    match /students/{studentId} {
+      allow get: if isValidId(studentId) && (isAdmin() || isOwner());
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && existing().ownerId == request.auth.uid);
+
+      allow create: if isVerifiedUser() &&
+        isValidId(studentId) &&
+        isValidStudent(incoming()) &&
+        incoming().student_id == studentId &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(studentId) &&
+        isValidStudent(incoming()) &&
+        incoming().student_id == existing().student_id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isOwner() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'qr_code', 'name', 'nickname', 'grade', 'room', 'className',
+            'seat_number', 'dorm', 'car_id', 'plate', 'pickup_point',
+            'latitude', 'longitude', 'map_link', 'parent_name',
+            'parent_phone', 'status', 'qr_image', 'avatarColor', 'updatedAt'
+          ])) ||
+          (isOwner() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(studentId) && (isAdmin() || isOwner());
+    }
+
+    match /cars/{carId} {
+      allow get: if isValidId(carId) && (isAdmin() || isOwner());
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && existing().ownerId == request.auth.uid);
+
+      allow create: if isVerifiedUser() &&
+        isValidId(carId) &&
+        isValidCar(incoming()) &&
+        incoming().car_id == carId &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(carId) &&
+        isValidCar(incoming()) &&
+        incoming().car_id == existing().car_id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isOwner() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'plate_number', 'name', 'route', 'driver_name', 'driver_phone',
+            'attendant_name', 'capacity', 'status', 'updatedAt'
+          ])) ||
+          (isOwner() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(carId) && (isAdmin() || isOwner());
+    }
+
+    match /scans/{scanId} {
+      allow get: if isValidId(scanId) && (isAdmin() || isOwner());
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && existing().ownerId == request.auth.uid);
+
+      allow create: if isVerifiedUser() &&
+        isValidId(scanId) &&
+        isValidScan(incoming()) &&
+        incoming().scan_id == scanId &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(scanId) &&
+        isValidScan(incoming()) &&
+        incoming().scan_id == existing().scan_id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isOwner() && incoming().diff(existing()).affectedKeys().hasOnly(['note', 'scan_type', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(scanId) && (isAdmin() || isOwner());
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isAdmin() || isOwner() || (isVerifiedUser() && existing().email == request.auth.token.email));
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && existing().ownerId == request.auth.uid);
+
+      allow create: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isValidAppUser(incoming()) &&
+        incoming().user_id == userId &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (isAdmin() || incoming().role != 'Admin');
+
+      allow update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isValidAppUser(incoming()) &&
+        incoming().user_id == existing().user_id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isOwner() && incoming().role == existing().role && incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'email', 'car_id', 'status', 'updatedAt'
+          ]))
+        );
+
+      allow delete: if isValidId(userId) && (isAdmin() || isOwner());
+    }
+
+    match /settings/{settingKey} {
+      allow get: if isValidId(settingKey) && (isAdmin() || isOwner());
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && existing().ownerId == request.auth.uid);
+
+      allow create: if isVerifiedUser() &&
+        isValidId(settingKey) &&
+        isValidSetting(incoming()) &&
+        incoming().key == settingKey &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(settingKey) &&
+        isValidSetting(incoming()) &&
+        incoming().key == existing().key &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isOwner() && incoming().diff(existing()).affectedKeys().hasOnly(['value', 'description', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(settingKey) && (isAdmin() || isOwner());
+    }
+
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && (isAdmin() || (isVerifiedUser() && request.auth.uid == userId));
+      allow list: if isBootstrappedAdmin();
+      allow create: if isAdmin() && isValidId(userId) && isValidAdminRole(incoming(), userId) && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(userId) && userId != request.auth.uid;
+    }
+  }
+}

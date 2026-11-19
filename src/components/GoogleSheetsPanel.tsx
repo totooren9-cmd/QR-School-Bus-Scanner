@@ -132,14 +132,14 @@ export const GoogleSheetsPanel: React.FC<GoogleSheetsPanelProps> = ({
       }
 
       const res = await createNewSpreadsheet(
-        'บันทึกสแกนขึ้นรถโรงเรียน (School Bus Attendance)',
+        'บันทึกสแกนขึ้นรถรับส่งพนักงาน (Bus Attendance)',
         token
       );
 
       onUpdateConnectedSheetId(
         res.spreadsheetId,
         res.spreadsheetUrl,
-        'บันทึกสแกนขึ้นรถโรงเรียน (School Bus Attendance)'
+        'บันทึกสแกนขึ้นรถรับส่งพนักงาน (Bus Attendance)'
       );
 
       // Auto-append existing scans if any
@@ -245,7 +245,7 @@ export const GoogleSheetsPanel: React.FC<GoogleSheetsPanelProps> = ({
       studentId: 'test-std',
       studentCode: '99999',
       name: 'ทดสอบเชื่อมต่อระบบ (Connection Test)',
-      grade: 'ม.1/1',
+      grade: 'ฝ่ายผลิต',
       busNumber: 'สาย 1 (สีส้ม)',
       locationName: 'จุดทดสอบระบบสแกน',
       latitude: 13.7548,
@@ -282,7 +282,7 @@ export const GoogleSheetsPanel: React.FC<GoogleSheetsPanelProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-1 max-w-xl">
-                บันทึกประวัติการสแกนนักเรียนขึ้นรถโดยอัตโนมัติลงใน Google Spreadsheet
+                บันทึกประวัติการสแกนพนักงานขึ้นรถโดยอัตโนมัติลงใน Google Spreadsheet
                 และ Google Apps Script Web App แบบเรียลไทม์
               </p>
             </div>
@@ -596,7 +596,7 @@ export const GoogleSheetsPanel: React.FC<GoogleSheetsPanelProps> = ({
               className="py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-2 shadow-md transition-all active:scale-95 disabled:opacity-50 shrink-0"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncingSheets ? 'animate-spin' : ''}`} />
-              <span>{isSyncingSheets ? 'กำลังดึงข้อมูลชีต...' : 'ดึงข้อมูลนักเรียนและรถจาก Sheet'}</span>
+              <span>{isSyncingSheets ? 'กำลังดึงข้อมูลชีต...' : 'ดึงข้อมูลพนักงานและรถจาก Sheet'}</span>
             </button>
           )}
         </div>
@@ -604,16 +604,16 @@ export const GoogleSheetsPanel: React.FC<GoogleSheetsPanelProps> = ({
         {/* 7 Sheets badges */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs">
           <div className="bg-slate-950/80 border border-slate-800 p-2.5 rounded-xl">
-            <span className="font-mono text-emerald-400 font-bold block text-[11px]">01_นักเรียน</span>
-            <span className="text-slate-300 text-[11px]">StudentID, ชื่อ, ชั้น, หอ, สายรถ</span>
+            <span className="font-mono text-emerald-400 font-bold block text-[11px]">01_พนักงาน</span>
+            <span className="text-slate-300 text-[11px]">รหัสพนักงาน, ชื่อ, แผนก, หอ, สายรถ</span>
           </div>
           <div className="bg-slate-950/80 border border-slate-800 p-2.5 rounded-xl">
             <span className="font-mono text-amber-400 font-bold block text-[11px]">02_รถ</span>
-            <span className="text-slate-300 text-[11px]">CarID, ทะเบียน, คนขับ, พี่เลี้ยง</span>
+            <span className="text-slate-300 text-[11px]">CarID, ทะเบียน, คนขับ, ผู้ดูแล</span>
           </div>
           <div className="bg-slate-950/80 border border-slate-800 p-2.5 rounded-xl">
             <span className="font-mono text-blue-400 font-bold block text-[11px]">03_บันทึกการสแกน</span>
-            <span className="text-slate-300 text-[11px]">เวลา, StudentID, พิกัด GPS, สถานะ</span>
+            <span className="text-slate-300 text-[11px]">เวลา, รหัสพนักงาน, พิกัด GPS, สถานะ</span>
           </div>
           <div className="bg-slate-950/80 border border-slate-800 p-2.5 rounded-xl">
             <span className="font-mono text-purple-400 font-bold block text-[11px]">04_ผู้ใช้งาน</span>
@@ -629,7 +629,7 @@ export const GoogleSheetsPanel: React.FC<GoogleSheetsPanelProps> = ({
           </div>
           <div className="bg-slate-950/80 border border-slate-800 p-2.5 rounded-xl col-span-2">
             <span className="font-mono text-yellow-400 font-bold block text-[11px]">07_QR_Code</span>
-            <span className="text-slate-300 text-[11px]">รหัส QR สำหรับสแกนขึ้นรถของนักเรียนทุกคน</span>
+            <span className="text-slate-300 text-[11px]">รหัส QR สำหรับสแกนขึ้นรถของพนักงานทุกคน</span>
           </div>
         </div>
 

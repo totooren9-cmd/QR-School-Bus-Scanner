@@ -1,16 +1,13 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
-  getAuth,
   signInWithPopup,
   GoogleAuthProvider,
   onAuthStateChanged,
   User,
   signOut,
 } from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { auth } from './firebaseClient';
 
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-export const auth = getAuth(app);
+export { auth };
 
 export const SCOPES = [
   'https://www.googleapis.com/auth/drive',
@@ -35,7 +32,6 @@ export const initAuth = (
       if (cachedAccessToken) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
       } else if (!isSigningIn) {
-        // Try getting token if available, or notify need login for workspace token
         if (onAuthFailure) onAuthFailure();
       }
     } else {

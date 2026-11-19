@@ -74,7 +74,7 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
                   <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-semibold">
                     {scan.grade}
                   </span>
-                  <span>รหัสนักเรียน: {scan.studentCode}</span>
+                  <span>รหัสพนักงาน: {scan.studentCode}</span>
                 </div>
               </div>
             </div>
@@ -98,7 +98,7 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
                 {scan.dbSaved ? (
                   <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    บันทึก Supabase Cloud แล้ว
+                    บันทึก Firebase Cloud แล้ว
                   </span>
                 ) : (
                   <span className="font-medium text-slate-400 flex items-center gap-1.5">
@@ -109,7 +109,7 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
               </div>
               {studentDetails?.parentPhone && (
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/40 border border-white/5">
-                  <span className="text-slate-400">📞 ผู้ปกครอง:</span>
+                  <span className="text-slate-400">📞 เบอร์โทรศัพท์:</span>
                   <a href={`tel:${studentDetails.parentPhone}`} className="font-semibold text-blue-400 underline">
                     {studentDetails.parentPhone}
                   </a>

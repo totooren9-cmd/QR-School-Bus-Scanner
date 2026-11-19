@@ -21,8 +21,8 @@ interface TestScanModalProps {
   cars: Car[];
   onTestScanStudent: (student: Student, scanType?: 'ขึ้นรถ' | 'ลงรถ') => void;
   onBatchTestScanAll: () => Promise<void>;
-  isSupabaseReady: boolean;
-  onOpenSupabaseConfig: () => void;
+  isFirebaseReady: boolean;
+  onOpenFirebaseConfig: () => void;
 }
 
 export const TestScanModal: React.FC<TestScanModalProps> = ({
@@ -32,8 +32,8 @@ export const TestScanModal: React.FC<TestScanModalProps> = ({
   cars,
   onTestScanStudent,
   onBatchTestScanAll,
-  isSupabaseReady,
-  onOpenSupabaseConfig,
+  isFirebaseReady,
+  onOpenFirebaseConfig,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedScanType, setSelectedScanType] = useState<'auto' | 'ขึ้นรถ' | 'ลงรถ'>('auto');
@@ -44,7 +44,7 @@ export const TestScanModal: React.FC<TestScanModalProps> = ({
   // Custom student inputs
   const [customName, setCustomName] = useState('');
   const [customCode, setCustomCode] = useState('');
-  const [customGrade, setCustomGrade] = useState('ม.1');
+  const [customGrade, setCustomGrade] = useState('ฝ่ายผลิต');
   const [customBus, setCustomBus] = useState('CAR01');
 
   // Filter students
@@ -104,17 +104,18 @@ export const TestScanModal: React.FC<TestScanModalProps> = ({
     const code = customCode.trim() || `STD${Math.floor(1000 + Math.random() * 9000)}`;
     const matchedCar = cars.find((c) => c.carID === customBus);
 
+    const dept = customGrade.trim() || 'แผนกทั่วไป';
     const newStudent: Student = {
       id: code,
       studentCode: code,
       name: customName.trim(),
-      grade: customGrade,
-      className: `${customGrade}/1`,
+      grade: dept,
+      className: dept,
       dorm: 'หอ A',
       carID: customBus,
       busNumber: customBus,
       plate: matchedCar?.plate || '1กข 1234',
-      dormOrStop: 'จุดรับส่งนักเรียน',
+      dormOrStop: 'จุดรับส่งพนักงาน',
       parentPhone: '081-234-5678',
       status: 'ใช้งาน',
       avatarColor: 'bg-indigo-500',
@@ -163,27 +164,27 @@ export const TestScanModal: React.FC<TestScanModalProps> = ({
         {/* Database Status Banner */}
         <div className="px-5 py-2.5 bg-slate-800/60 border-b border-white/5 flex items-center justify-between gap-3 text-xs shrink-0">
           <div className="flex items-center gap-2">
-            <Database className={`w-4 h-4 ${isSupabaseReady ? 'text-emerald-400' : 'text-cyan-400'}`} />
-            {isSupabaseReady ? (
+            <Database className={`w-4 h-4 ${isFirebaseReady ? 'text-emerald-400' : 'text-amber-400'}`} />
+            {isFirebaseReady ? (
               <span className="text-emerald-300 font-medium">
-                ⚡ ฐานข้อมูล Supabase เชื่อมต่อพร้อมบันทึก Real-time 100%
+                ⚡ ฐานข้อมูล Firebase Firestore เชื่อมต่อพร้อมบันทึก Real-time 100%
               </span>
             ) : (
-              <span className="text-cyan-300 font-medium">
-                💾 บันทึกในฐานข้อมูลระบบ (Local Database) ปลอดภัย 100%
+              <span className="text-amber-300 font-medium">
+                ⏳ ยังไม่ได้เข้าสู่ระบบ Firebase (คิวสแกนจะถูกซิงค์ขึ้น Cloud ทันทีเมื่อล็อกอิน)
               </span>
             )}
           </div>
-          {!isSupabaseReady && (
+          {!isFirebaseReady && (
             <button
               onClick={() => {
                 onClose();
-                onOpenSupabaseConfig();
+                onOpenFirebaseConfig();
               }}
               className="text-[11px] text-amber-300 hover:underline flex items-center gap-1 font-medium"
               type="button"
             >
-              <span>เชื่อมต่อ Supabase Cloud</span>
+              <span>เชื่อมต่อ Firebase Cloud</span>
               <ArrowRight className="w-3 h-3" />
             </button>
           )}
@@ -295,50 +296,39 @@ export const TestScanModal: React.FC<TestScanModalProps> = ({
             >
               <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
                 <UserCheck className="w-3.5 h-3.5" />
-                <span>เพิ่มรายชื่อนักเรียนใหม่และบันทึกลงฐานข้อมูลทันที</span>
+                <span>เพิ่มรายชื่อพนักงานใหม่และบันทึกลงฐานข้อมูลทันที</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div>
-                  <label className="block text-slate-300 mb-1">ชื่อ-นามสกุล นักเรียน *</label>
+                  <label className="block text-slate-300 mb-1">ชื่อ-นามสกุล พนักงาน *</label>
                   <input
                     type="text"
                     value={customName}
                     onChange={(e) => setCustomName(e.target.value)}
-                    placeholder="เช่น ด.ช.เอกชัย ใจดี"
+                    placeholder="เช่น นายเอกชัย ใจดี"
                     required
                     className="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-400"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 mb-1">รหัสนักเรียน (ไม่ระบุจะสร้างอัตโนมัติ)</label>
+                  <label className="block text-slate-300 mb-1">รหัสพนักงาน (ไม่ระบุจะสร้างอัตโนมัติ)</label>
                   <input
                     type="text"
                     value={customCode}
                     onChange={(e) => setCustomCode(e.target.value)}
-                    placeholder="เช่น STD9001"
+                    placeholder="เช่น EMP9001"
                     className="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-400 font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 mb-1">ระดับชั้น</label>
-                  <select
+                  <label className="block text-slate-300 mb-1">แผนก</label>
+                  <input
+                    type="text"
                     value={customGrade}
                     onChange={(e) => setCustomGrade(e.target.value)}
+                    placeholder="เช่น ฝ่ายผลิต / บัญชี"
                     className="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-400"
-                  >
-                    <option value="ม.1">ม.1</option>
-                    <option value="ม.2">ม.2</option>
-                    <option value="ม.3">ม.3</option>
-                    <option value="ม.4">ม.4</option>
-                    <option value="ม.5">ม.5</option>
-                    <option value="ม.6">ม.6</option>
-                    <option value="ป.1">ป.1</option>
-                    <option value="ป.2">ป.2</option>
-                    <option value="ป.3">ป.3</option>
-                    <option value="ป.4">ป.4</option>
-                    <option value="ป.5">ป.5</option>
-                    <option value="ป.6">ป.6</option>
-                  </select>
+                  />
                 </div>
                 <div>
                   <label className="block text-slate-300 mb-1">สายรถประจำ</label>
@@ -375,7 +365,7 @@ export const TestScanModal: React.FC<TestScanModalProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="ค้นหารายชื่อนักเรียน, รหัส, ระดับชั้น, สายรถ เพื่อทดสอบสแกน..."
+              placeholder="ค้นหารายชื่อพนักงาน, รหัสพนักงาน, แผนก, สายรถ เพื่อทดสอบสแกน..."
               className="w-full bg-slate-800/90 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-amber-400"
             />
             {searchQuery && (
@@ -392,14 +382,14 @@ export const TestScanModal: React.FC<TestScanModalProps> = ({
           {/* Student Roster List */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs text-slate-400 px-1">
-              <span>รายชื่อนักเรียนในฐานข้อมูล ({filteredStudents.length} คน)</span>
+              <span>รายชื่อพนักงานในฐานข้อมูล ({filteredStudents.length} คน)</span>
               <span>กดปุ่มเพื่อทดสอบสแกนรายชื่อ</span>
             </div>
 
             <div className="divide-y divide-white/5 border border-white/5 rounded-xl bg-slate-800/40 overflow-hidden max-h-72 overflow-y-auto">
               {filteredStudents.length === 0 ? (
                 <div className="p-8 text-center text-slate-400 text-xs">
-                  ไม่พบรายชื่อนักเรียนที่ตรงกับคำค้นหา
+                  ไม่พบรายชื่อพนักงานที่ตรงกับคำค้นหา
                 </div>
               ) : (
                 filteredStudents.map((student) => (
@@ -423,7 +413,7 @@ export const TestScanModal: React.FC<TestScanModalProps> = ({
                           <span>{student.studentCode}</span>
                           <span>•</span>
                           <span className="text-slate-300">
-                            {student.className || student.grade || 'ม.1'}
+                            {student.className || student.grade || 'แผนกทั่วไป'}
                           </span>
                           <span>•</span>
                           <span className="text-emerald-400 flex items-center gap-0.5">
@@ -452,7 +442,7 @@ export const TestScanModal: React.FC<TestScanModalProps> = ({
         {/* Footer */}
         <div className="px-5 py-3 border-t border-white/10 bg-slate-900/90 flex items-center justify-between text-xs text-slate-400 shrink-0">
           <span>
-            ระบบจะบันทึกทั้งรายชื่อนักเรียนและประวัติสแกนลงฐานข้อมูลอัตโนมัติ
+            ระบบจะบันทึกทั้งรายชื่อพนักงานและประวัติสแกนลงฐานข้อมูลอัตโนมัติ
           </span>
           <button
             onClick={onClose}

@@ -42,6 +42,7 @@ export interface Student {
   avatarUrl?: string;
   status?: string;
   qrUrl?: string;
+  ownerId?: string;
   created_at?: string;
   updated_at?: string;
   createdDate?: string;
@@ -58,6 +59,7 @@ export interface Car {
   attendant: string;
   capacity: number;
   status: string;
+  ownerId?: string;
 }
 
 export interface ScanRecord {
@@ -86,6 +88,24 @@ export interface ScanRecord {
   note?: string;
   avatar?: string;
   dbSaved?: boolean;
+  ownerId?: string;
+}
+
+export interface AppUser {
+  user_id: string;
+  name: string;
+  email: string;
+  role: 'Admin' | 'Staff' | 'Viewer';
+  car_id: string;
+  status: string;
+  ownerId?: string;
+}
+
+export interface SystemSetting {
+  key: string;
+  value: string;
+  description: string;
+  ownerId?: string;
 }
 
 export type AdminTab =
@@ -97,5 +117,4 @@ export type AdminTab =
   | 'qr-generator'
   | 'reports'
   | 'sheets'
-  | 'supabase';
-
+  | 'firebase';

@@ -22,7 +22,7 @@ export async function getCurrentCoordinates(): Promise<GeoCoords> {
           resolve({
             latitude: Number(defaultLat.toFixed(4)),
             longitude: Number(defaultLng.toFixed(4)),
-            locationName: 'จุดรับส่งนักเรียน'
+            locationName: 'จุดรับส่งพนักงาน'
           });
         },
         { timeout: 3500, enableHighAccuracy: true }
@@ -31,7 +31,7 @@ export async function getCurrentCoordinates(): Promise<GeoCoords> {
       resolve({
         latitude: 13.7548,
         longitude: 100.4982,
-        locationName: 'จุดรับส่งนักเรียน'
+        locationName: 'จุดรับส่งพนักงาน'
       });
     }
   });

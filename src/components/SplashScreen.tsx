@@ -34,7 +34,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
           <div className="splash-ring delay"></div>
         </div>
         <h1>QR BUS</h1>
-        <p>ระบบเช็คอินนักเรียนขึ้นรถ</p>
+        <p>ระบบเช็คอินพนักงานขึ้นรถ</p>
         <div className="splash-loader">
           <span></span>
         </div>

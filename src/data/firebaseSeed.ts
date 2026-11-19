@@ -1,7 +1,7 @@
-// Auto-generated Supabase Seed Data (300 Students, 5 Cars, Settings, Users, Scans)
+// Firebase Firestore Seed Data (300 Students, 5 Cars, Settings, Users, Scans) (300 Students, 5 Cars, Settings, Users, Scans)
 import { Student, Car, ScanRecord } from '../types';
 
-export const SUPABASE_CARS: Car[] = [
+export const FIREBASE_CARS: Car[] = [
   {
     "carID": "CAR01",
     "plate": "1กข 1234",
@@ -59,7 +59,7 @@ export const SUPABASE_CARS: Car[] = [
   }
 ];
 
-export const SUPABASE_STUDENTS: Student[] = [
+export const FIREBASE_STUDENTS: Student[] = [
   {
     "id": "STD0001",
     "studentCode": "STD0001",
@@ -6662,7 +6662,7 @@ export const SUPABASE_STUDENTS: Student[] = [
   }
 ];
 
-export const SUPABASE_SCANS: ScanRecord[] = [
+export const FIREBASE_SCANS: ScanRecord[] = [
   {
     "id": "SC20260914101",
     "scanId": "SC20260914101",
@@ -10115,7 +10115,7 @@ export const SUPABASE_SCANS: ScanRecord[] = [
   }
 ];
 
-export const SUPABASE_USERS = [
+export const FIREBASE_USERS = [
   {
     "user_id": "U001",
     "name": "ผู้ดูแลระบบ",
@@ -10142,7 +10142,7 @@ export const SUPABASE_USERS = [
   }
 ];
 
-export const SUPABASE_SETTINGS = [
+export const FIREBASE_SETTINGS = [
   {
     "key": "system_name",
     "value": "ระบบเช็คอินนักเรียนขึ้นรถ (QR Bus)",

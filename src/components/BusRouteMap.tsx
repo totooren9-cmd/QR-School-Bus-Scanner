@@ -64,7 +64,7 @@ function getCarColor(carId: string) {
 
 // School coordinates (Destination/Origin terminal hub)
 const SCHOOL_TERMINAL = {
-  name: 'โรงเรียน (จุดหมายปลายทาง)',
+  name: 'บริษัท / จุดหมายปลายทาง',
   latitude: 13.7563,
   longitude: 100.5018,
 };
@@ -298,10 +298,10 @@ export const BusRouteMap: React.FC<BusRouteMapProps> = ({
       html: `
         <div class="relative flex items-center justify-center">
           <div class="w-10 h-10 rounded-2xl bg-indigo-600 text-white shadow-xl border-2 border-white flex items-center justify-center font-bold text-lg transform hover:scale-110 transition-transform">
-            🏫
+            🏢
           </div>
           <div class="absolute -bottom-5 bg-slate-900/90 text-indigo-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-indigo-500/30 whitespace-nowrap shadow">
-            โรงเรียน
+            จุดหมายปลายทาง
           </div>
         </div>
       `,
@@ -313,8 +313,8 @@ export const BusRouteMap: React.FC<BusRouteMapProps> = ({
     const schoolMarker = L.marker([SCHOOL_TERMINAL.latitude, SCHOOL_TERMINAL.longitude], { icon: schoolIcon });
     schoolMarker.bindPopup(`
       <div class="p-1 text-slate-800">
-        <h4 class="font-bold text-sm text-indigo-600">🏫 โรงเรียน (จุดหมายปลายทาง)</h4>
-        <p class="text-xs text-slate-600 mt-1">จุดรวมรับส่งนักเรียนทุกสายประจำโรงเรียน</p>
+        <h4 class="font-bold text-sm text-indigo-600">🏢 บริษัท / จุดหมายปลายทาง</h4>
+        <p class="text-xs text-slate-600 mt-1">จุดรวมรับส่งพนักงานทุกสาย</p>
         <div class="mt-2 font-mono text-[11px] bg-slate-100 p-1.5 rounded text-slate-700">
           พิกัด: ${SCHOOL_TERMINAL.latitude.toFixed(4)}, ${SCHOOL_TERMINAL.longitude.toFixed(4)}
         </div>
@@ -501,7 +501,7 @@ export const BusRouteMap: React.FC<BusRouteMapProps> = ({
               </span>
             </h3>
             <p className="text-[11px] text-slate-400">
-              พิกัดจุดรับส่งตามลำดับการสแกนล่าสุดของนักเรียนแต่ละคัน
+              พิกัดจุดรับส่งตามลำดับการสแกนล่าสุดของพนักงานแต่ละคัน
             </p>
           </div>
         </div>
@@ -588,7 +588,7 @@ export const BusRouteMap: React.FC<BusRouteMapProps> = ({
           <input
             type="text"
             className="w-full bg-slate-950/70 border border-white/10 rounded-xl pl-8 pr-3 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-            placeholder="ค้นหาจุดสแกน/นักเรียน..."
+            placeholder="ค้นหาจุดสแกน/พนักงาน..."
             value={searchFilter}
             onChange={(e) => setSearchFilter(e.target.value)}
           />
@@ -618,7 +618,7 @@ export const BusRouteMap: React.FC<BusRouteMapProps> = ({
 
           <div className="flex items-center gap-2 text-slate-300">
             <span className="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-lg border border-emerald-500/20 font-mono">
-              นักเรียนสแกนแล้ว {totalScannedInView} คน
+              พนักงานสแกนแล้ว {totalScannedInView} คน
             </span>
           </div>
         </div>
@@ -640,7 +640,7 @@ export const BusRouteMap: React.FC<BusRouteMapProps> = ({
             </div>
             <div className="flex items-center gap-2 text-[11px] text-slate-300">
               <span className="w-3 h-3 rounded-full bg-indigo-600 border border-white" />
-              <span>🏫 จุดหมาย (โรงเรียน)</span>
+              <span>🏢 จุดหมาย (บริษัท)</span>
             </div>
             <div className="flex items-center gap-2 text-[11px] text-slate-300">
               <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse border border-white" />
@@ -665,7 +665,7 @@ export const BusRouteMap: React.FC<BusRouteMapProps> = ({
                 </div>
                 <h4 className="font-bold text-white text-sm">ยังไม่มีพิกัดการสแกนของรถสายนี้</h4>
                 <p className="text-xs text-slate-400">
-                  เมื่อนักเรียนสแกน QR Code ขึ้นรถหรือลงรถ ระบบจะบันทึกพิกัด GPS อัตโนมัติและวาดเส้นทางบนแผนที่แบบ Realtime
+                  เมื่อพนักงานสแกน QR Code ขึ้นรถหรือลงรถ ระบบจะบันทึกพิกัด GPS อัตโนมัติและวาดเส้นทางบนแผนที่แบบ Realtime
                 </p>
               </div>
             </div>
@@ -778,7 +778,7 @@ export const BusRouteMap: React.FC<BusRouteMapProps> = ({
                     {/* Students list expandable / preview */}
                     {stop.studentsScanned.length > 0 && (
                       <div className="mt-2 space-y-1">
-                        <div className="text-[10px] text-slate-500 font-medium">นักเรียนที่สแกนจุดนี้:</div>
+                        <div className="text-[10px] text-slate-500 font-medium">พนักงานที่สแกนจุดนี้:</div>
                         <div className="flex flex-wrap gap-1">
                           {stop.studentsScanned.slice(0, 3).map((stu, i) => (
                             <span

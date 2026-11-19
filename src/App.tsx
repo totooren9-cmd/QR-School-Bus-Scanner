@@ -1,17 +1,18 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import confetti from 'canvas-confetti';
+import { User } from 'firebase/auth';
 import { SplashScreen } from './components/SplashScreen';
 import { CameraHalf } from './components/CameraHalf';
 import { ScanListHalf } from './components/ScanListHalf';
 import { CardDetailModal } from './components/CardDetailModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { AdminDashboard } from './components/AdminDashboard';
-import { QuickSupabaseModal } from './components/QuickSupabaseModal';
+import { FirebaseAuthModal } from './components/FirebaseAuthModal';
 import { TestScanModal } from './components/TestScanModal';
 import { formatThaiDateTime } from './data/mockData';
 import { speakFastSuccess, triggerVibration } from './utils/audio';
 import { getCurrentCoordinates } from './utils/geo';
-import { Student, ScanRecord, Car, AdminTab } from './types';
+import { Student, ScanRecord, Car, AdminTab, AppUser, SystemSetting } from './types';
 import {
   DEFAULT_APPS_SCRIPT_URL,
   syncToAppsScriptWebhook,
@@ -22,23 +23,40 @@ import {
 } from './services/googleSheets';
 import { getAccessToken } from './services/googleAuth';
 import {
-  fetchStudentsFromSupabase,
-  fetchCarsFromSupabase,
-  fetchScansFromSupabase,
-  insertStudentToSupabase,
-  upsertStudentToSupabase,
-  updateStudentInSupabase,
-  deleteStudentFromSupabase,
-  insertCarToSupabase,
-  updateCarInSupabase,
-  deleteCarFromSupabase,
-  insertScanToSupabase,
-  deleteScanFromSupabase,
-  clearAllScansInSupabase,
-  subscribeToSupabaseRealtime,
-  isSupabaseConnected,
+  testConnection,
+  onFirebaseAuthChanged,
+  isFirebaseReady,
+  fetchStudentsFromFirebase,
+  fetchCarsFromFirebase,
+  fetchScansFromFirebase,
+  fetchUsersFromFirebase,
+  fetchSettingsFromFirebase,
+  upsertStudentToFirebase,
+  deleteStudentFromFirebase,
+  upsertCarToFirebase,
+  deleteCarFromFirebase,
+  insertScanToFirebase,
+  deleteScanFromFirebase,
+  clearAllScansInFirebase,
+  upsertUserToFirebase,
+  deleteUserFromFirebase,
+  upsertSettingToFirebase,
+  deleteSettingFromFirebase,
+  importStudentsBatchToFirebase,
+  subscribeToFirebaseRealtime,
   syncPendingScans,
-} from './services/supabaseClient';
+  getPendingCars,
+  savePendingCar,
+  removePendingCar,
+  mergeCarsWithPending,
+  syncPendingCars,
+  getPendingStudents,
+  savePendingStudent,
+  removePendingStudent,
+  mergeStudentsWithPending,
+  syncPendingStudents,
+  ensureDatabaseSeededIfEmpty,
+} from './services/firebaseClient';
 
 function deduplicateAndFixScanIds(records: ScanRecord[]): ScanRecord[] {
   const seenIds = new Set<string>();
@@ -60,11 +78,14 @@ function deduplicateAndFixScanIds(records: ScanRecord[]): ScanRecord[] {
   });
 }
 
-// Auto-purge any legacy mock data from browser localStorage (100% Supabase Cloud enforcement)
+// Auto-purge any legacy Supabase or mock data keys from localStorage (100% Firebase Firestore)
 if (typeof window !== 'undefined') {
   try {
-    const PURGE_KEY = 'qr_bus_legacy_mock_purged_v5';
+    const PURGE_KEY = 'qr_bus_firebase_migration_purged_v1';
     if (!localStorage.getItem(PURGE_KEY)) {
+      localStorage.removeItem('qr_bus_supabase_url');
+      localStorage.removeItem('qr_bus_supabase_anon_key');
+      localStorage.removeItem('qr_bus_pending_scans');
       localStorage.removeItem('bus_students');
       localStorage.removeItem('bus_cars');
       localStorage.removeItem('bus_scans');
@@ -80,63 +101,27 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState<string>('09:41');
   const [toastMsg, setToastMsg] = useState<string>('');
 
-  // Primary Data States (100% Supabase Cloud Driven - Zero Mock Data)
-  const [students, setStudents] = useState<Student[]>(() => {
-    // If Supabase is not connected yet, never load local mock data
-    if (!isSupabaseConnected()) return [];
-    const saved = localStorage.getItem('bus_students');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      } catch {
-        return [];
-      }
-    }
-    return [];
-  });
-
-  const [cars, setCars] = useState<Car[]>(() => {
-    if (!isSupabaseConnected()) return [];
-    const saved = localStorage.getItem('bus_cars');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      } catch {
-        return [];
-      }
-    }
-    return [];
-  });
-
-  const [scans, setScans] = useState<ScanRecord[]>(() => {
-    if (!isSupabaseConnected()) return [];
-    const saved = localStorage.getItem('bus_scans');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return deduplicateAndFixScanIds(parsed);
-        }
-      } catch {
-        return [];
-      }
-    }
-    return [];
-  });
+  // Firebase Auth & Primary Cloud Data States (100% Firestore Driven)
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
+  const [students, setStudents] = useState<Student[]>(() => getPendingStudents());
+  const [cars, setCars] = useState<Car[]>(() => getPendingCars());
+  const [scans, setScans] = useState<ScanRecord[]>([]);
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [settings, setSettings] = useState<SystemSetting[]>([]);
 
   const [activeScan, setActiveScan] = useState<ScanRecord | null>(null);
   const [selectedScanDetail, setSelectedScanDetail] = useState<ScanRecord | null>(null);
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState<boolean>(false);
   const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState<boolean>(false);
-  const [isQuickSupabaseOpen, setIsQuickSupabaseOpen] = useState<boolean>(() => !isSupabaseConnected());
+  const [isFirebaseModalOpen, setIsFirebaseModalOpen] = useState<boolean>(false);
   const [isTestScanModalOpen, setIsTestScanModalOpen] = useState<boolean>(false);
   const [adminInitialTab, setAdminInitialTab] = useState<AdminTab>('dashboard');
-  const [isSupabaseReadyState, setIsSupabaseReadyState] = useState<boolean>(() => isSupabaseConnected());
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [isSyncingSheets, setIsSyncingSheets] = useState<boolean>(false);
-  const [isSyncingSupabase, setIsSyncingSupabase] = useState<boolean>(false);
+  const [isSyncingFirebase, setIsSyncingFirebase] = useState<boolean>(false);
+
+  const hasAutoSeededRef = useRef<boolean>(false);
 
   // Google Sheets & Apps Script State
   const [appsScriptUrl, setAppsScriptUrl] = useState<string>(() => {
@@ -173,7 +158,7 @@ export default function App() {
     setToastMsg(msg);
     setTimeout(() => {
       setToastMsg((curr) => (curr === msg ? '' : curr));
-    }, 3000);
+    }, 3200);
   }, []);
 
   // Persist Sheets settings
@@ -203,130 +188,140 @@ export default function App() {
     if (title) setConnectedSheetTitle(title);
   };
 
-  // Sync to localStorage
+  // Run mandatory Firestore connection check on mount
   useEffect(() => {
-    localStorage.setItem('bus_cars', JSON.stringify(cars));
-  }, [cars]);
-
-  useEffect(() => {
-    localStorage.setItem('bus_students', JSON.stringify(students));
-  }, [students]);
-
-  useEffect(() => {
-    localStorage.setItem('bus_scans', JSON.stringify(scans));
-  }, [scans]);
+    testConnection();
+  }, []);
 
   // ==========================================
-  // SUPABASE 100% GETDATA / FETCH FROM CLOUD
+  // FIREBASE AUTH + REALTIME FIRESTORE SYNC
   // ==========================================
-  const refreshFromSupabase = useCallback(
+  const refreshFromFirebase = useCallback(
     async (silent = false) => {
-      if (!isSupabaseConnected()) return;
-      setIsSyncingSupabase(true);
+      if (!isFirebaseReady()) return;
+      setIsSyncingFirebase(true);
       try {
-        const [stuRes, carRes, scanRes] = await Promise.all([
-          fetchStudentsFromSupabase(),
-          fetchCarsFromSupabase(),
-          fetchScansFromSupabase(),
+        const [stuRes, carRes, scanRes, userList, settingList] = await Promise.all([
+          fetchStudentsFromFirebase(),
+          fetchCarsFromFirebase(),
+          fetchScansFromFirebase(),
+          fetchUsersFromFirebase(),
+          fetchSettingsFromFirebase(),
         ]);
 
-        const successItems: string[] = [];
-
-        if (stuRes.success && stuRes.data) {
+        const summary: string[] = [];
+        if (stuRes.success) {
           setStudents(stuRes.data);
-          localStorage.setItem('bus_students', JSON.stringify(stuRes.data));
-          successItems.push(`นักเรียน ${stuRes.data.length} คน`);
+          summary.push(`พนักงาน ${stuRes.data.length} คน`);
         }
-
-        if (carRes.success && carRes.data) {
-          if (carRes.data.length > 0) {
-            setCars(carRes.data);
-            localStorage.setItem('bus_cars', JSON.stringify(carRes.data));
-            successItems.push(`รถ ${carRes.data.length} คัน`);
-          }
+        if (carRes.success) {
+          setCars(carRes.data);
+          summary.push(`รถ ${carRes.data.length} คัน`);
         }
-
-        if (scanRes.success && scanRes.data) {
+        if (scanRes.success) {
           const uniqueScans = deduplicateAndFixScanIds(scanRes.data);
           setScans(uniqueScans);
-          localStorage.setItem('bus_scans', JSON.stringify(uniqueScans));
-          successItems.push(`สแกน ${uniqueScans.length} รายการ`);
+          summary.push(`สแกน ${uniqueScans.length} รายการ`);
         }
+        setUsers(userList);
+        setSettings(settingList);
 
-        if (successItems.length > 0) {
-          showToast(`⚡ ดึงข้อมูล Supabase 100%: ${successItems.join(' • ')}`);
-        } else if (!silent) {
-          showToast('⚡ เชื่อมต่อ Supabase สำเร็จ (ข้อมูลเป็นปัจจุบัน 100%)');
+        if (!silent) {
+          showToast(`🔥 ดึงข้อมูล Firebase 100%: ${summary.join(' • ')}`);
         }
       } catch (err) {
-        console.warn('Failed to fetch from Supabase:', err);
+        console.warn('Failed to fetch from Firebase:', err);
         if (!silent) {
-          showToast('ไม่สามารถดึงข้อมูลจาก Supabase ได้ในขณะนี้');
+          showToast('ไม่สามารถดึงข้อมูลจาก Firebase ได้ในขณะนี้');
         }
       } finally {
-        setIsSyncingSupabase(false);
+        setIsSyncingFirebase(false);
       }
     },
     [showToast]
   );
 
-  // Background fetch from Supabase on mount and listen for Realtime PostgreSQL changes
+  // Listen to Firebase Auth state and attach Firestore onSnapshot listeners ONLY when authenticated
   useEffect(() => {
-    if (isSupabaseConnected()) {
-      refreshFromSupabase(true);
+    let unsubscribeRealtime: (() => void) | null = null;
 
-      // Automatically sync any pending scans that were scanned offline or before connecting
-      syncPendingScans().then((syncRes) => {
-        if (syncRes.syncedCount > 0) {
-          showToast(`⚡ ซิงค์สแกนค้างส่งเข้า Supabase ${syncRes.syncedCount} รายการ สำเร็จ`);
-        }
-      });
+    const unsubscribeAuth = onFirebaseAuthChanged(async (user) => {
+      setFirebaseUser(user);
 
-      const unsubscribe = subscribeToSupabaseRealtime({
-        onScanInsert: (newScan) => {
-          setScans((prev) => {
-            if (prev.some((s) => s.id === newScan.id || s.scanId === newScan.scanId)) {
-              return prev;
-            }
-            return [newScan, ...prev];
-          });
-        },
-        onScanDelete: (deletedScanId) => {
-          setScans((prev) => prev.filter((s) => s.id !== deletedScanId && s.scanId !== deletedScanId));
-        },
-        onStudentChange: () => {
-          fetchStudentsFromSupabase().then((res) => {
-            if (res.success && res.data) {
-              setStudents(res.data);
-              localStorage.setItem('bus_students', JSON.stringify(res.data));
-            }
-          });
-        },
-        onCarChange: () => {
-          fetchCarsFromSupabase().then((res) => {
-            if (res.success && res.data && res.data.length > 0) {
-              setCars(res.data);
-            }
-          });
-        },
-      });
+      if (unsubscribeRealtime) {
+        unsubscribeRealtime();
+        unsubscribeRealtime = null;
+      }
 
-      return () => {
-        if (unsubscribe) unsubscribe();
-      };
-    }
-  }, [refreshFromSupabase, isSupabaseReadyState]);
-
-  // Flush pending offline scans automatically when the device comes back online
-  useEffect(() => {
-    const handleOnline = () => {
-      if (isSupabaseConnected()) {
-        setIsSupabaseReadyState(true);
-        syncPendingScans().then((res) => {
-          if (res.syncedCount > 0) {
-            showToast(`⚡ ออนไลน์: ซิงค์สแกนขึ้น Supabase ${res.syncedCount} รายการ สำเร็จ 100%`);
+      if (user && user.emailVerified) {
+        // Flush pending offline Cars -> Students -> Scans FIRST so nothing is overwritten
+        try {
+          const carSync = await syncPendingCars();
+          const stuSync = await syncPendingStudents();
+          const scanSync = await syncPendingScans();
+          const totalSynced = carSync.syncedCount + stuSync.syncedCount + scanSync.syncedCount;
+          if (totalSynced > 0) {
+            showToast(
+              `🔥 ซิงค์ข้อมูลที่เพิ่มไว้ขึ้น Firebase สำเร็จ (รถ ${carSync.syncedCount}, พนักงาน ${stuSync.syncedCount}, สแกน ${scanSync.syncedCount})`
+            );
           }
+        } catch {
+          // Will retry on next reconnect
+        }
+
+        // Auto-seed 300 students + 5 cars + 3 users + 10 settings on first connection if DB is empty
+        if (!hasAutoSeededRef.current) {
+          hasAutoSeededRef.current = true;
+          try {
+            const seedResult = await ensureDatabaseSeededIfEmpty((p) => {
+              showToast(`🔥 ${p.step}`);
+            });
+            if (seedResult.seeded) {
+              showToast(`🔥 ย้ายรายชื่อพนักงาน ${seedResult.studentsCount} คน & ข้อมูลระบบเข้า Firebase ครบ 100%!`);
+            }
+          } catch (seedErr) {
+            console.warn('Auto-seed check notice:', seedErr);
+          }
+        }
+
+        // Attach real-time Firestore listeners for all 5 collections (merging any pending records)
+        unsubscribeRealtime = subscribeToFirebaseRealtime({
+          onStudents: (rows) => setStudents(mergeStudentsWithPending(rows)),
+          onCars: (rows) => setCars(mergeCarsWithPending(rows)),
+          onScans: (rows) => setScans(deduplicateAndFixScanIds(rows)),
+          onUsers: (rows) => setUsers(rows),
+          onSettings: (rows) => setSettings(rows),
         });
+      } else {
+        setStudents(getPendingStudents());
+        setCars(getPendingCars());
+        setScans([]);
+        setUsers([]);
+        setSettings([]);
+      }
+    });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeRealtime) unsubscribeRealtime();
+    };
+  }, [showToast]);
+
+  // Flush pending offline records when browser comes back online
+  useEffect(() => {
+    const handleOnline = async () => {
+      if (isFirebaseReady()) {
+        try {
+          const carRes = await syncPendingCars();
+          const stuRes = await syncPendingStudents();
+          const scanRes = await syncPendingScans();
+          const total = carRes.syncedCount + stuRes.syncedCount + scanRes.syncedCount;
+          if (total > 0) {
+            showToast(`🔥 ออนไลน์: ซิงค์ข้อมูลขึ้น Firebase สำเร็จ (${total} รายการ)`);
+          }
+        } catch {
+          // Ignore transient error
+        }
       }
     };
     window.addEventListener('online', handleOnline);
@@ -349,20 +344,20 @@ export default function App() {
 
         if (stuRes.success && stuRes.data && stuRes.data.length > 0) {
           setStudents(stuRes.data);
-          localStorage.setItem('bus_students', JSON.stringify(stuRes.data));
-          successItems.push(`นักเรียน ${stuRes.data.length} คน`);
+          if (isFirebaseReady()) {
+            await importStudentsBatchToFirebase(stuRes.data).catch(() => {});
+          }
+          successItems.push(`พนักงาน ${stuRes.data.length} คน`);
         }
 
         if (carRes.success && carRes.data && carRes.data.length > 0) {
           setCars(carRes.data);
-          localStorage.setItem('bus_cars', JSON.stringify(carRes.data));
           successItems.push(`รถ ${carRes.data.length} คัน`);
         }
 
         if (scanRes.success && scanRes.data && scanRes.data.length > 0) {
           const uniqueScans = deduplicateAndFixScanIds(scanRes.data);
           setScans(uniqueScans);
-          localStorage.setItem('bus_scans', JSON.stringify(uniqueScans));
           successItems.push(`สแกน ${uniqueScans.length} รายการ`);
         }
 
@@ -384,7 +379,7 @@ export default function App() {
   );
 
   // ==========================================
-  // SCAN ACTION (INSERT SCAN TO SUPABASE 100%)
+  // SCAN ACTION (INSERT SCAN TO FIREBASE 100%)
   // ==========================================
   const registerScan = useCallback(
     async (
@@ -392,24 +387,16 @@ export default function App() {
       source: 'camera' | 'upload' | 'simulated',
       customScanType?: 'ขึ้นรถ' | 'ลงรถ'
     ) => {
-      // 1. Guaranteed: Immediately save the student into the local students roster & localStorage
       setStudents((prev) => {
         const existingIdx = prev.findIndex(
           (s) => s.studentCode === student.studentCode || s.id === student.id
         );
-        let updated: Student[];
         if (existingIdx >= 0) {
-          updated = [...prev];
+          const updated = [...prev];
           updated[existingIdx] = { ...updated[existingIdx], ...student };
-        } else {
-          updated = [student, ...prev];
+          return updated;
         }
-        try {
-          localStorage.setItem('bus_students', JSON.stringify(updated));
-        } catch {
-          // ignore storage full
-        }
-        return updated;
+        return [student, ...prev];
       });
 
       const geo = await getCurrentCoordinates();
@@ -417,7 +404,6 @@ export default function App() {
 
       const studentCar = cars.find((c) => c.carID === student.carID || c.carID === student.busNumber);
 
-      // ตรวจสอบประวัติการสแกนของนักเรียนในวันนี้: สแกนครั้งแรกคือขึ้นรถ สแกนครั้งที่ 2 คือลงรถ
       const studentScansToday = scans.filter(
         (s) =>
           (s.studentCode === student.studentCode || s.studentId === student.id) &&
@@ -441,14 +427,20 @@ export default function App() {
         studentId: student.id || student.studentCode,
         studentCode: student.studentCode || student.id,
         name: student.name,
-        grade: student.className || student.classroom || student.grade || 'ม.1',
+        grade: student.className || student.classroom || student.grade || 'แผนกทั่วไป',
         dorm: student.dorm || student.dormOrStop || 'หอ A',
         carID: student.carID || student.busNumber || 'CAR01',
         plate: student.plate || studentCar?.plate || '1กข 1234',
         scanType,
-        scannerName: 'MOBILE01',
+        scannerName: firebaseUser?.displayName || 'MOBILE01',
         busNumber: student.busNumber || student.carID || 'CAR01',
-        locationName: student.pickup_point || student.pickupPoint || student.pickup || student.dormOrStop || student.busStopName || geo.locationName,
+        locationName:
+          student.pickup_point ||
+          student.pickupPoint ||
+          student.pickup ||
+          student.dormOrStop ||
+          student.busStopName ||
+          geo.locationName,
         latitude:
           typeof student.latitude === 'number' && !isNaN(student.latitude) && student.latitude !== 0
             ? student.latitude
@@ -470,29 +462,19 @@ export default function App() {
           `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(student.studentCode)}`,
       };
 
-      setScans((prev) => {
-        const next = [newScan, ...prev];
-        try {
-          localStorage.setItem('bus_scans', JSON.stringify(next));
-        } catch {
-          // ignore
-        }
-        return next;
-      });
+      setScans((prev) => [newScan, ...prev]);
       setActiveScan(newScan);
       showToast(
         isDropOff
-          ? `⚡ สแกนลงรถสำเร็จ: ${student.name}`
-          : `⚡ สแกนขึ้นรถสำเร็จ: ${student.name}`
+          ? `🔥 สแกนลงรถสำเร็จ: ${student.name}`
+          : `🔥 สแกนขึ้นรถสำเร็จ: ${student.name}`
       );
 
-      // Play Thai announcement & vibration
       if (soundEnabled) {
         speakFastSuccess(isDropOff ? 'สแกนลงรถเรียบร้อย' : 'สแกนขึ้นรถเรียบร้อย');
       }
       triggerVibration();
 
-      // Confetti burst
       try {
         confetti({
           particleCount: 30,
@@ -504,16 +486,10 @@ export default function App() {
         // Ignore if blocked
       }
 
-      // 1. Guaranteed: Save student name to database (Supabase students table)
-      upsertStudentToSupabase(student).catch((stuErr) => {
-        console.warn('Student upsert error:', stuErr);
-      });
-
-      // 2. Guaranteed: Save scan record to database (Supabase scans table)
-      insertScanToSupabase(newScan, { student })
+      // Persist scan + student to Firebase Firestore
+      insertScanToFirebase(newScan, { student })
         .then((res) => {
           if (res.success) {
-            console.log('✓ Inserted scan into Supabase database successfully');
             setScans((prev) =>
               prev.map((s) =>
                 s.id === newScan.id || s.scanId === newScan.scanId
@@ -528,24 +504,19 @@ export default function App() {
             );
             showToast(
               isDropOff
-                ? `✓ บันทึกลงฐานข้อมูล Supabase สำเร็จ: ${student.name} (ลงรถ)`
-                : `✓ บันทึกลงฐานข้อมูล Supabase สำเร็จ: ${student.name} (ขึ้นรถ)`
+                ? `✓ บันทึกลง Firebase สำเร็จ: ${student.name} (ลงรถ)`
+                : `✓ บันทึกลง Firebase สำเร็จ: ${student.name} (ขึ้นรถ)`
             );
-          } else {
-            console.warn('Supabase insert notice:', res.error);
-            showToast(
-              res.isOfflineQueued
-                ? `💾 ${student.name}: บันทึกลงฐานข้อมูลในระบบเรียบร้อย`
-                : `💾 ${student.name}: บันทึกลงฐานข้อมูลเรียบร้อย`
-            );
+          } else if (res.isOfflineQueued) {
+            showToast(`⏳ บันทึกลงคิวรอซิงค์ Firebase (กรุณาเข้าสู่ระบบ Google)`);
           }
         })
         .catch((err) => {
-          console.warn('Background Supabase scan insert failed:', err);
-          showToast(`💾 ${student.name}: บันทึกลงฐานข้อมูลเรียบร้อย`);
+          console.warn('Background Firebase scan insert failed:', err);
+          showToast(`⚠️ เกิดข้อผิดพลาดในการบันทึก Firebase: ${err instanceof Error ? err.message : ''}`);
         });
 
-      // 3. Auto-Sync to Google Sheets & Apps Script
+      // Auto-Sync to Google Sheets & Apps Script
       if (autoSyncEnabled) {
         syncToAppsScriptWebhook(appsScriptUrl, newScan).catch((err) => {
           console.warn('Background Apps Script sync failed:', err);
@@ -568,7 +539,7 @@ export default function App() {
         setActiveScan((curr) => (curr?.id === newScan.id ? null : curr));
       }, 3500);
     },
-    [cars, scans, soundEnabled, autoSyncEnabled, appsScriptUrl, connectedSheetId, showToast]
+    [cars, scans, soundEnabled, autoSyncEnabled, appsScriptUrl, connectedSheetId, firebaseUser, showToast]
   );
 
   // Handle Real Camera / Upload QR code parsing
@@ -599,13 +570,13 @@ export default function App() {
             matchedStudent = {
               id: targetCode,
               studentCode: targetCode,
-              name: parsed.name || 'นักเรียนทั่วไป',
-              grade: parsed.grade || 'ม.1',
-              className: parsed.classroom || parsed.grade || 'ม.1/1',
+              name: parsed.name || 'พนักงานทั่วไป',
+              grade: parsed.grade || 'แผนกทั่วไป',
+              className: parsed.classroom || parsed.grade || 'แผนกทั่วไป',
               dorm: parsed.dorm || 'หอ A',
               carID: parsed.carID || 'CAR01',
               busNumber: parsed.bus || parsed.carID || 'CAR01',
-              dormOrStop: parsed.dorm || 'จุดรับส่งนักเรียน',
+              dormOrStop: parsed.dorm || 'จุดรับส่งพนักงาน',
               parentPhone: parsed.parentPhone || '081-000-0000',
               avatarColor: 'bg-indigo-500',
             };
@@ -637,12 +608,12 @@ export default function App() {
           name:
             rawClean.length > 2 && !rawClean.startsWith('http')
               ? rawClean
-              : `นักเรียนรหัส ${fallbackCode}`,
-          grade: 'ม.1',
+              : `พนักงานรหัส ${fallbackCode}`,
+          grade: 'แผนกทั่วไป',
           dorm: 'หอ A',
           carID: 'CAR01',
-          busNumber: 'CAR01 (หอ A)',
-          dormOrStop: 'จุดรับส่งหน้าโรงเรียน',
+          busNumber: 'CAR01',
+          dormOrStop: 'จุดรับส่งพนักงาน',
           parentPhone: '089-111-2233',
           avatarColor: 'bg-emerald-500',
         };
@@ -656,14 +627,14 @@ export default function App() {
   // Handle Simulate Scan
   const handleSimulateScan = useCallback(() => {
     if (students.length === 0) {
-      showToast('⚠️ ยังไม่มีรายชื่อนักเรียนในระบบ กรุณาเพิ่มนักเรียนหรือดึงข้อมูลจาก Supabase ก่อน');
+      showToast('⚠️ กรุณาเข้าสู่ระบบ Google เพื่อดึงรายชื่อพนักงาน 300 คนจาก Firebase ก่อน');
+      setIsFirebaseModalOpen(true);
       return;
     }
     const picked = students[Math.floor(Math.random() * students.length)];
     registerScan(picked, 'simulated');
   }, [students, registerScan, showToast]);
 
-  // Handle Dedicated Test Scan for any student
   const handleTestScanStudent = useCallback(
     (student: Student, scanType?: 'ขึ้นรถ' | 'ลงรถ') => {
       registerScan(student, 'simulated', scanType);
@@ -671,7 +642,6 @@ export default function App() {
     [registerScan]
   );
 
-  // Handle Batch Test Scan All
   const handleBatchTestScanAll = useCallback(async () => {
     const batchList = students.slice(0, 20);
     for (let i = 0; i < batchList.length; i++) {
@@ -683,20 +653,31 @@ export default function App() {
   }, [students, registerScan, showToast]);
 
   // ==========================================
-  // SUPABASE CRUD HANDLERS: STUDENTS
+  // FIREBASE CRUD HANDLERS: STUDENTS
   // ==========================================
   const handleAddStudent = async (newStudent: Student) => {
-    setStudents((prev) => [newStudent, ...prev.filter((s) => s.id !== newStudent.id)]);
-
-    if (isSupabaseConnected()) {
-      const res = await insertStudentToSupabase(newStudent);
-      if (res.success) {
-        showToast(`⚡ บันทึก ${newStudent.name} ลง Supabase สำเร็จ`);
-      } else {
-        showToast(`บันทึกในแอปแล้ว (Supabase: ${res.error})`);
+    setStudents((prev) => [newStudent, ...prev.filter((s) => s.id !== newStudent.id && s.studentCode !== newStudent.studentCode)]);
+    if (isFirebaseReady()) {
+      try {
+        const res = await upsertStudentToFirebase(newStudent);
+        if (res.success) {
+          removePendingStudent(newStudent.id || newStudent.studentCode);
+          showToast(`🔥 บันทึก ${newStudent.name} ลง Firebase สำเร็จ`);
+          return true;
+        }
+        savePendingStudent(newStudent);
+        showToast(`แจ้งเตือน Firebase (สำรองในเครื่องไว้แล้ว): ${res.error}`);
+        return false;
+      } catch (err) {
+        savePendingStudent(newStudent);
+        showToast(`⚠️ บันทึก Firebase ไม่สำเร็จ (เก็บคิวในเครื่องไว้แล้ว): ${err instanceof Error ? err.message : ''}`);
+        return false;
       }
     } else {
-      showToast(`เพิ่มนักเรียน ${newStudent.name} แล้ว (Local)`);
+      savePendingStudent(newStudent);
+      showToast('💾 บันทึกพนักงานลงเครื่องไว้แล้ว — กรุณาเข้าสู่ระบบ Google เพื่อซิงค์ขึ้น Firebase ถาวร');
+      setIsFirebaseModalOpen(true);
+      return true;
     }
   };
 
@@ -704,44 +685,54 @@ export default function App() {
     setStudents((prev) =>
       prev.map((s) => (s.id === updatedStudent.id || s.studentCode === updatedStudent.studentCode ? updatedStudent : s))
     );
-
-    if (isSupabaseConnected()) {
-      const res = await updateStudentInSupabase(updatedStudent);
-      if (res.success) {
-        showToast(`⚡ อัปเดต ${updatedStudent.name} ใน Supabase สำเร็จ`);
-      } else {
-        showToast(`อัปเดตในแอปแล้ว (Supabase: ${res.error})`);
+    if (isFirebaseReady()) {
+      try {
+        const res = await upsertStudentToFirebase(updatedStudent);
+        if (res.success) {
+          removePendingStudent(updatedStudent.id || updatedStudent.studentCode);
+          showToast(`🔥 อัปเดต ${updatedStudent.name} ใน Firebase สำเร็จ`);
+          return true;
+        }
+        savePendingStudent(updatedStudent);
+        showToast(`แจ้งเตือน Firebase (สำรองในเครื่องไว้แล้ว): ${res.error}`);
+        return false;
+      } catch (err) {
+        savePendingStudent(updatedStudent);
+        showToast(`⚠️ อัปเดต Firebase ไม่สำเร็จ (เก็บคิวในเครื่องไว้แล้ว): ${err instanceof Error ? err.message : ''}`);
+        return false;
       }
     } else {
-      showToast(`แก้ไขข้อมูล ${updatedStudent.name} เรียบร้อย`);
+      savePendingStudent(updatedStudent);
+      showToast('💾 บันทึกการแก้ไขลงเครื่องไว้แล้ว — กรุณาเข้าสู่ระบบ Google เพื่อซิงค์ขึ้น Firebase');
+      setIsFirebaseModalOpen(true);
+      return true;
     }
   };
 
   const handleDeleteStudent = async (id: string) => {
+    removePendingStudent(id);
     setStudents((prev) => prev.filter((s) => s.id !== id && s.studentCode !== id));
-
-    if (isSupabaseConnected()) {
-      const res = await deleteStudentFromSupabase(id);
-      if (res.success) {
-        showToast('⚡ ลบนักเรียนออกจาก Supabase สำเร็จ');
-      } else {
-        showToast(`ลบในแอปแล้ว (Supabase: ${res.error})`);
+    if (isFirebaseReady()) {
+      try {
+        const res = await deleteStudentFromFirebase(id);
+        if (res.success) {
+          showToast('🔥 ลบพนักงานออกจาก Firebase สำเร็จ');
+        } else {
+          showToast(`แจ้งเตือน Firebase: ${res.error}`);
+        }
+      } catch (err) {
+        showToast(`⚠️ ลบจาก Firebase ไม่สำเร็จ: ${err instanceof Error ? err.message : ''}`);
       }
-    } else {
-      showToast('ลบนักเรียนเรียบร้อย');
     }
   };
 
   const handleClearMockStudents = () => {
-    localStorage.removeItem('bus_students');
-    localStorage.removeItem('bus_cars');
-    localStorage.removeItem('bus_scans');
-    setStudents([]);
-    setCars([]);
+    setStudents(getPendingStudents());
+    setCars(getPendingCars());
     setScans([]);
-    showToast('ล้างแคช Mockdata ในเครื่องทั้งหมดเรียบร้อย (ระบบใช้ Supabase 100%)');
-    if (isSupabaseConnected()) {
-      refreshFromSupabase(false);
+    showToast('รีเซ็ตแคชหน้าจอเรียบร้อย (กำลังซิงค์ข้อมูลสดจาก Firebase Firestore)');
+    if (isFirebaseReady()) {
+      refreshFromFirebase(false);
     }
   };
 
@@ -752,116 +743,148 @@ export default function App() {
       const existingMap = new Map<string, Student>();
       prev.forEach((s) => existingMap.set(s.studentCode.trim().toUpperCase(), s));
       importedStudents.forEach((s) => existingMap.set(s.studentCode.trim().toUpperCase(), s));
-      const merged = Array.from(existingMap.values());
-      try {
-        localStorage.setItem('bus_students', JSON.stringify(merged));
-      } catch (e) {
-        console.warn('Failed to persist imported students to localStorage:', e);
-      }
-      return merged;
+      return Array.from(existingMap.values());
     });
 
-    showToast(`⚡ นำเข้าข้อมูลนักเรียน ${importedStudents.length} คน เรียบร้อย`);
-
-    if (isSupabaseConnected()) {
-      let successCount = 0;
-      for (const st of importedStudents) {
-        try {
-          const res = await insertStudentToSupabase(st);
-          if (res.success) successCount++;
-        } catch {
-          // ignore individual sync failure
-        }
+    if (isFirebaseReady()) {
+      try {
+        const res = await importStudentsBatchToFirebase(importedStudents);
+        showToast(`🔥 นำเข้า & บันทึกลง Firebase สำเร็จ ${res.count} คน`);
+      } catch (err) {
+        importedStudents.forEach(savePendingStudent);
+        showToast(`⚠️ นำเข้า Firebase ไม่สำเร็จ (เก็บคิวในเครื่องไว้แล้ว): ${err instanceof Error ? err.message : ''}`);
       }
-      if (successCount > 0) {
-        showToast(`⚡ ซิงค์ Supabase ${successCount}/${importedStudents.length} คน`);
-      }
+    } else {
+      importedStudents.forEach(savePendingStudent);
+      showToast('💾 เก็บรายชื่อที่นำเข้าไว้ในเครื่องแล้ว — กรุณาเข้าสู่ระบบ Google เพื่อซิงค์ขึ้น Firebase');
+      setIsFirebaseModalOpen(true);
     }
   };
 
   // ==========================================
-  // SUPABASE CRUD HANDLERS: CARS
+  // FIREBASE CRUD HANDLERS: CARS
   // ==========================================
   const handleAddCar = async (newCar: Car) => {
     setCars((prev) => [...prev.filter((c) => c.carID !== newCar.carID), newCar]);
-
-    if (isSupabaseConnected()) {
-      const res = await insertCarToSupabase(newCar);
-      if (res.success) {
-        showToast(`⚡ บันทึกรถ ${newCar.name} ลง Supabase สำเร็จ`);
-      } else {
-        showToast(`บันทึกในแอปแล้ว (Supabase: ${res.error})`);
+    if (isFirebaseReady()) {
+      try {
+        const res = await upsertCarToFirebase(newCar);
+        if (res.success) {
+          removePendingCar(newCar.carID);
+          showToast(`🔥 บันทึกรถ ${newCar.name} ลง Firebase สำเร็จ`);
+          return true;
+        }
+        savePendingCar(newCar);
+        showToast(`แจ้งเตือน Firebase (สำรองในเครื่องไว้แล้ว): ${res.error}`);
+        return false;
+      } catch (err) {
+        savePendingCar(newCar);
+        showToast(`⚠️ บันทึกรถลง Firebase ไม่สำเร็จ (เก็บคิวในเครื่องไว้แล้ว): ${err instanceof Error ? err.message : ''}`);
+        return false;
       }
     } else {
-      showToast(`เพิ่มรถ ${newCar.name} เรียบร้อย`);
+      savePendingCar(newCar);
+      showToast('💾 บันทึกรถลงเครื่องไว้แล้ว — กรุณาเข้าสู่ระบบ Google เพื่อซิงค์ขึ้น Firebase ถาวร');
+      setIsFirebaseModalOpen(true);
+      return true;
     }
   };
 
   const handleEditCar = async (updatedCar: Car) => {
-    setCars((prev) =>
-      prev.map((c) => (c.carID === updatedCar.carID ? updatedCar : c))
-    );
-
-    if (isSupabaseConnected()) {
-      const res = await updateCarInSupabase(updatedCar);
-      if (res.success) {
-        showToast(`⚡ อัปเดตรถ ${updatedCar.name} ใน Supabase สำเร็จ`);
-      } else {
-        showToast(`อัปเดตรถแล้ว (Supabase: ${res.error})`);
+    setCars((prev) => prev.map((c) => (c.carID === updatedCar.carID ? updatedCar : c)));
+    if (isFirebaseReady()) {
+      try {
+        const res = await upsertCarToFirebase(updatedCar);
+        if (res.success) {
+          removePendingCar(updatedCar.carID);
+          showToast(`🔥 อัปเดตรถ ${updatedCar.name} ใน Firebase สำเร็จ`);
+          return true;
+        }
+        savePendingCar(updatedCar);
+        showToast(`แจ้งเตือน Firebase (สำรองในเครื่องไว้แล้ว): ${res.error}`);
+        return false;
+      } catch (err) {
+        savePendingCar(updatedCar);
+        showToast(`⚠️ อัปเดตรถลง Firebase ไม่สำเร็จ (เก็บคิวในเครื่องไว้แล้ว): ${err instanceof Error ? err.message : ''}`);
+        return false;
       }
     } else {
-      showToast(`แก้ไขรถ ${updatedCar.name} เรียบร้อย`);
+      savePendingCar(updatedCar);
+      showToast('💾 บันทึกการแก้ไขรถลงเครื่องไว้แล้ว — กรุณาเข้าสู่ระบบ Google เพื่อซิงค์ขึ้น Firebase');
+      setIsFirebaseModalOpen(true);
+      return true;
     }
   };
 
   const handleDeleteCar = async (carId: string) => {
+    removePendingCar(carId);
     setCars((prev) => prev.filter((c) => c.carID !== carId));
-
-    if (isSupabaseConnected()) {
-      const res = await deleteCarFromSupabase(carId);
-      if (res.success) {
-        showToast('⚡ ลบรถออกจาก Supabase สำเร็จ');
-      } else {
-        showToast(`ลบในแอปแล้ว (Supabase: ${res.error})`);
+    if (isFirebaseReady()) {
+      try {
+        const res = await deleteCarFromFirebase(carId);
+        if (res.success) {
+          showToast('🔥 ลบรถออกจาก Firebase สำเร็จ');
+        } else {
+          showToast(`แจ้งเตือน Firebase: ${res.error}`);
+        }
+      } catch (err) {
+        showToast(`⚠️ ลบรถจาก Firebase ไม่สำเร็จ: ${err instanceof Error ? err.message : ''}`);
       }
-    } else {
-      showToast('ลบรถเรียบร้อย');
     }
   };
 
   // ==========================================
-  // SUPABASE CRUD HANDLERS: SCANS
+  // FIREBASE CRUD HANDLERS: SCANS
   // ==========================================
   const handleDeleteScan = async (scanId: string) => {
     setScans((prev) => prev.filter((s) => s.id !== scanId && s.scanId !== scanId));
-
-    if (isSupabaseConnected()) {
-      const res = await deleteScanFromSupabase(scanId);
+    if (isFirebaseReady()) {
+      const res = await deleteScanFromFirebase(scanId);
       if (res.success) {
-        showToast('⚡ ลบรายการสแกนจาก Supabase แล้ว');
+        showToast('🔥 ลบรายการสแกนจาก Firebase แล้ว');
       } else {
-        showToast(`ลบในแอปแล้ว (Supabase: ${res.error})`);
+        showToast(`แจ้งเตือน Firebase: ${res.error}`);
       }
-    } else {
-      showToast('ลบรายการสแกนแล้ว');
     }
   };
 
   const handleClearAllScans = async () => {
     setScans([]);
     setActiveScan(null);
-
-    if (isSupabaseConnected()) {
-      const res = await clearAllScansInSupabase();
+    if (isFirebaseReady()) {
+      const res = await clearAllScansInFirebase();
       if (res.success) {
-        showToast(res.warning || '⚡ ล้างประวัติสแกนใน Supabase ทั้งหมดแล้ว');
+        showToast('🔥 ล้างประวัติสแกนใน Firebase ทั้งหมดแล้ว');
       } else {
-        showToast(`ล้างประวัติในเครื่องแล้ว (${res.error || ''})`);
+        showToast(`แจ้งเตือน Firebase: ${res.error || ''}`);
       }
-    } else {
-      showToast('ล้างประวัติการสแกนแล้ว');
     }
   };
+
+  // ==========================================
+  // FIREBASE CRUD HANDLERS: USERS & SETTINGS
+  // ==========================================
+  const handleUpsertUser = async (appUser: AppUser) => {
+    await upsertUserToFirebase(appUser);
+    showToast(`🔥 บันทึกบัญชีผู้ใช้ ${appUser.name} ลง Firebase สำเร็จ`);
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    await deleteUserFromFirebase(userId);
+    showToast('🔥 ลบบัญชีผู้ใช้จาก Firebase แล้ว');
+  };
+
+  const handleUpsertSetting = async (setting: SystemSetting) => {
+    await upsertSettingToFirebase(setting);
+    showToast(`🔥 บันทึกการตั้งค่า ${setting.key} ลง Firebase สำเร็จ`);
+  };
+
+  const handleDeleteSetting = async (key: string) => {
+    await deleteSettingFromFirebase(key);
+    showToast('🔥 ลบการตั้งค่าจาก Firebase แล้ว');
+  };
+
+  const firebaseReady = Boolean(firebaseUser && firebaseUser.emailVerified);
 
   return (
     <>
@@ -885,27 +908,6 @@ export default function App() {
           id="screen-scan"
           className={`screen ${!isAdminDashboardOpen ? 'active' : ''}`}
         >
-          {/* Top banner when Supabase is not connected yet */}
-          {!isSupabaseReadyState && (
-            <div className="mx-3 my-2 p-2.5 bg-gradient-to-r from-amber-950/90 via-slate-900 to-amber-950/90 border border-amber-500/50 rounded-2xl shadow-xl flex items-center justify-between gap-2.5 text-xs z-30 shrink-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-lg animate-pulse">⚡</span>
-                <div className="min-w-0">
-                  <p className="font-bold text-amber-300 truncate">ยังไม่ได้เชื่อมต่อ Supabase Database</p>
-                  <p className="text-[10px] text-slate-300 truncate">แตะเพื่อกรอก Project URL & Key เชื่อมต่อระบบ 100%</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsQuickSupabaseOpen(true)}
-                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] shrink-0 transition-all shadow-md active:scale-95 flex items-center gap-1"
-              >
-                <span>เชื่อมต่อ</span>
-                <span>→</span>
-              </button>
-            </div>
-          )}
-
           {/* Top : Camera */}
           <CameraHalf
             onScanSuccess={handleScanSuccess}
@@ -913,17 +915,15 @@ export default function App() {
             onOpenTestScanModal={() => setIsTestScanModalOpen(true)}
             activeScan={activeScan}
             totalScans={scans.length}
-            isSupabaseReady={isSupabaseReadyState}
-            onOpenSupabaseConfig={() => {
-              setIsQuickSupabaseOpen(true);
-            }}
+            onCameraActiveChange={setIsCameraActive}
           />
 
-          {/* Bottom : Scan List (Bottom Sheet) */}
+          {/* Bottom : Scan List (Bottom Sheet with Auto-Collapse) */}
           <ScanListHalf
             scans={scans}
             cars={cars}
             students={students}
+            cameraActive={isCameraActive}
             onSelectScan={(scan) => setSelectedScanDetail(scan)}
             onClearAll={handleClearAllScans}
             onOpenAdmin={() => setIsAdminLoginOpen(true)}
@@ -942,13 +942,16 @@ export default function App() {
           />
         </section>
 
-        {/* ============ ADMIN SCREEN (FULL CRUD SUPABASE) ============ */}
+        {/* ============ ADMIN SCREEN (FULL CRUD FIREBASE) ============ */}
         {isAdminDashboardOpen && (
           <AdminDashboard
             initialTab={adminInitialTab}
             students={students}
             cars={cars}
             scans={scans}
+            users={users}
+            settings={settings}
+            firebaseUser={firebaseUser}
             onAddStudent={handleAddStudent}
             onEditStudent={handleEditStudent}
             onDeleteStudent={handleDeleteStudent}
@@ -958,6 +961,10 @@ export default function App() {
             onDeleteCar={handleDeleteCar}
             onDeleteScan={handleDeleteScan}
             onClearAllScans={handleClearAllScans}
+            onUpsertUser={handleUpsertUser}
+            onDeleteUser={handleDeleteUser}
+            onUpsertSetting={handleUpsertSetting}
+            onDeleteSetting={handleDeleteSetting}
             onCloseAdmin={() => setIsAdminDashboardOpen(false)}
             appsScriptUrl={appsScriptUrl}
             onUpdateAppsScriptUrl={setAppsScriptUrl}
@@ -969,26 +976,25 @@ export default function App() {
             onToggleAutoSync={() => setAutoSyncEnabled((prev) => !prev)}
             onSyncFromGoogleSheets={() => refreshFromGoogleSheets(false)}
             isSyncingSheets={isSyncingSheets}
-            onSyncFromSupabase={() => refreshFromSupabase(false)}
-            isSyncingSupabase={isSyncingSupabase}
+            onSyncFromFirebase={() => refreshFromFirebase(false)}
+            isSyncingFirebase={isSyncingFirebase}
             onClearMockStudents={handleClearMockStudents}
+            onOpenFirebaseAuth={() => setIsFirebaseModalOpen(true)}
           />
         )}
       </div>
 
-      {/* ============ QUICK SUPABASE CONNECT MODAL ============ */}
-      <QuickSupabaseModal
-        isOpen={isQuickSupabaseOpen}
-        onClose={() => setIsQuickSupabaseOpen(false)}
-        onConnectedChange={(connected) => {
-          setIsSupabaseReadyState(connected);
-          if (connected) {
-            refreshFromSupabase(true);
-            showToast('✓ เชื่อมต่อ Supabase Cloud สำเร็จ 100%');
-          }
-        }}
-        onOpenFullSqlTab={() => {
-          setAdminInitialTab('supabase');
+      {/* ============ FIREBASE AUTH & MIGRATION MODAL ============ */}
+      <FirebaseAuthModal
+        isOpen={isFirebaseModalOpen}
+        onClose={() => setIsFirebaseModalOpen(false)}
+        firebaseUser={firebaseUser}
+        studentCount={students.length}
+        carCount={cars.length}
+        scanCount={scans.length}
+        onSyncComplete={() => refreshFromFirebase(true)}
+        onOpenFullFirebaseTab={() => {
+          setAdminInitialTab('firebase');
           setIsAdminDashboardOpen(true);
         }}
       />
@@ -1001,8 +1007,8 @@ export default function App() {
         cars={cars}
         onTestScanStudent={handleTestScanStudent}
         onBatchTestScanAll={handleBatchTestScanAll}
-        isSupabaseReady={isSupabaseReadyState}
-        onOpenSupabaseConfig={() => setIsQuickSupabaseOpen(true)}
+        isFirebaseReady={firebaseReady}
+        onOpenFirebaseConfig={() => setIsFirebaseModalOpen(true)}
       />
 
       {/* ============ LOGIN SHEET ============ */}

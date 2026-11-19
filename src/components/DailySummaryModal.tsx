@@ -220,12 +220,12 @@ export const DailySummaryModal: React.FC<DailySummaryModalProps> = ({
   // Copy Summary Text
   const handleCopySummary = async () => {
     const lines = [
-      `🚌 รายงานสรุปการรับส่งนักเรียนประจำวัน`,
+      `🚌 รายงานสรุปการรับส่งพนักงานประจำวัน`,
       `📅 วันที่: ${activeDateString} (ณ เวลา ${todayInfo.timeThai})`,
       `━━━━━━━━━━━━━━━━━━━━`,
       `🟢 ยอดขึ้นรถทั้งหมด: ${totalPickups} ครั้ง`,
       `🔵 ยอดลงรถทั้งหมด: ${totalDropOffs} ครั้ง`,
-      `👥 จำนวนนักเรียนที่สแกน: ${uniqueStudentsToday.size} คน`,
+      `👥 จำนวนพนักงานที่สแกน: ${uniqueStudentsToday.size} คน`,
       `🟡 กำลังเดินทาง / อยู่บนรถ: ${studentsOnBus.length} คน`,
       `📋 รวมการสแกนทั้งหมด: ${totalScans} รายการ`,
       `━━━━━━━━━━━━━━━━━━━━`,
@@ -235,7 +235,7 @@ export const DailySummaryModal: React.FC<DailySummaryModalProps> = ({
           `• ${b.busName} (${b.carId}) [${b.plate || '-'}] : ขึ้น ${b.pickups} | ลง ${b.dropoffs} (บนรถ ${b.studentsOnBus})`
       ),
       `━━━━━━━━━━━━━━━━━━━━`,
-      `📌 ส่งจากระบบ Remix QR School Bus`,
+      `📌 ส่งจากระบบ QR Bus Attendance`,
     ];
 
     const text = lines.join('\n');
@@ -449,7 +449,7 @@ export const DailySummaryModal: React.FC<DailySummaryModalProps> = ({
                   {totalScans}
                 </div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
-                  จากนักเรียน {uniqueStudentsToday.size} คน
+                  จากพนักงาน {uniqueStudentsToday.size} คน
                 </div>
               </div>
             </div>
@@ -501,7 +501,7 @@ export const DailySummaryModal: React.FC<DailySummaryModalProps> = ({
                 <div className="flex items-center gap-2 min-w-0">
                   <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
                   <span className="truncate">
-                    มีนักเรียน {studentsOnBus.length} คน ที่สแกนขึ้นรถแล้วแต่ยังไม่มีบันทึกลงรถ
+                    มีพนักงาน {studentsOnBus.length} คน ที่สแกนขึ้นรถแล้วแต่ยังไม่มีบันทึกลงรถ
                   </span>
                 </div>
                 <button
@@ -537,7 +537,7 @@ export const DailySummaryModal: React.FC<DailySummaryModalProps> = ({
                   : 'border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
-              🎓 แยกตามระดับชั้น ({gradeBreakdown.length})
+              🏢 แยกตามแผนก ({gradeBreakdown.length})
             </button>
             <button
               type="button"
@@ -599,7 +599,7 @@ export const DailySummaryModal: React.FC<DailySummaryModalProps> = ({
                                 ส่งครบแล้วทุกคน
                               </span>
                             ) : (
-                              <span>ยังไม่มีนักเรียนอยู่บนรถ</span>
+                              <span>ยังไม่มีพนักงานอยู่บนรถ</span>
                             )}
                           </div>
                         </div>
@@ -632,7 +632,7 @@ export const DailySummaryModal: React.FC<DailySummaryModalProps> = ({
             <div className="space-y-2">
               {gradeBreakdown.length === 0 ? (
                 <div className="py-8 text-center text-slate-500 text-xs">
-                  ยังไม่มีข้อมูลแยกตามระดับชั้น
+                  ยังไม่มีข้อมูลแยกตามแผนก
                 </div>
               ) : (
                 gradeBreakdown.map((g) => (

@@ -25,19 +25,25 @@ import {
   AlertTriangle,
   Download,
   Upload,
+  Printer,
 } from 'lucide-react';
-import { Student, ScanRecord, Car, AdminTab } from '../types';
+import type { User as FirebaseAuthUser } from 'firebase/auth';
+import { Student, ScanRecord, Car, AdminTab, AppUser, SystemSetting } from '../types';
 import { GoogleSheetsPanel } from './GoogleSheetsPanel';
-import { SupabasePanel } from './SupabasePanel';
-import { isSupabaseConnected } from '../services/supabaseClient';
+import { FirebasePanel } from './FirebasePanel';
+import { isFirebaseReady } from '../services/firebaseClient';
 import { StudentExcelModal } from './StudentExcelModal';
 import { BusRouteMap } from './BusRouteMap';
+import { QRPrintPage } from './QRPrintPage';
 import { exportStudentTemplateXLSX, exportStudentsToXLSX, exportScansToXLSX } from '../utils/excelStudents';
 
 interface AdminDashboardProps {
   students: Student[];
   cars?: Car[];
   scans: ScanRecord[];
+  users?: AppUser[];
+  settings?: SystemSetting[];
+  firebaseUser?: FirebaseAuthUser | null;
   onAddStudent: (student: Student) => Promise<boolean | void> | void;
   onEditStudent?: (student: Student) => Promise<boolean | void> | void;
   onDeleteStudent: (id: string) => Promise<boolean | void> | void;
@@ -47,6 +53,10 @@ interface AdminDashboardProps {
   onDeleteCar?: (carId: string) => Promise<boolean | void> | void;
   onDeleteScan?: (scanId: string) => Promise<boolean | void> | void;
   onClearAllScans?: () => Promise<boolean | void> | void;
+  onUpsertUser?: (user: AppUser) => Promise<void>;
+  onDeleteUser?: (userId: string) => Promise<void>;
+  onUpsertSetting?: (setting: SystemSetting) => Promise<void>;
+  onDeleteSetting?: (key: string) => Promise<void>;
   onCloseAdmin: () => void;
   appsScriptUrl: string;
   onUpdateAppsScriptUrl: (url: string) => void;
@@ -58,9 +68,10 @@ interface AdminDashboardProps {
   onToggleAutoSync: () => void;
   onSyncFromGoogleSheets?: () => Promise<void>;
   isSyncingSheets?: boolean;
-  onSyncFromSupabase?: () => Promise<void>;
-  isSyncingSupabase?: boolean;
+  onSyncFromFirebase?: () => Promise<void>;
+  isSyncingFirebase?: boolean;
   onClearMockStudents?: () => void;
+  onOpenFirebaseAuth?: () => void;
   initialTab?: AdminTab;
 }
 
@@ -68,6 +79,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   students,
   cars = [],
   scans,
+  users = [],
+  settings = [],
+  firebaseUser = null,
   onAddStudent,
   onEditStudent,
   onDeleteStudent,
@@ -76,6 +90,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onDeleteCar,
   onDeleteScan,
   onClearAllScans,
+  onUpsertUser,
+  onDeleteUser,
+  onUpsertSetting,
+  onDeleteSetting,
   onCloseAdmin,
   appsScriptUrl,
   onUpdateAppsScriptUrl,
@@ -87,10 +105,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onToggleAutoSync,
   onSyncFromGoogleSheets,
   isSyncingSheets = false,
-  onSyncFromSupabase,
-  isSyncingSupabase = false,
+  onSyncFromFirebase,
+  isSyncingFirebase = false,
   onClearMockStudents,
   onImportStudents,
+  onOpenFirebaseAuth,
   initialTab = 'dashboard',
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>(initialTab || 'dashboard');
@@ -118,8 +137,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [formStudentCode, setFormStudentCode] = useState('');
   const [formStudentName, setFormStudentName] = useState('');
   const [formStudentNickname, setFormStudentNickname] = useState('');
-  const [formStudentGrade, setFormStudentGrade] = useState('ม.1');
-  const [formStudentRoom, setFormStudentRoom] = useState('1');
+  const [formStudentGrade, setFormStudentGrade] = useState('');
+  const [formStudentRoom, setFormStudentRoom] = useState('');
   const [formStudentNumber, setFormStudentNumber] = useState('');
   const [formStudentDorm, setFormStudentDorm] = useState('หอ A');
   const [formStudentCar, setFormStudentCar] = useState('CAR01');
@@ -147,8 +166,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [formCarStatus, setFormCarStatus] = useState('ใช้งาน');
 
   // QR Code Tab state
-  const [qrCar, setQrCar] = useState('');
-  const [generatedQRs, setGeneratedQRs] = useState<{ student: Student; qrUrl: string }[]>([]);
+  const [qrPrintPreselectedId, setQrPrintPreselectedId] = useState<string | null>(null);
   const [selectedStudentForQR, setSelectedStudentForQR] = useState<Student | null>(null);
   const [singleQrUrl, setSingleQrUrl] = useState<string>('');
 
@@ -163,20 +181,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Confirm delete dialog state
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<{
-    type: 'student' | 'car' | 'scan' | 'clear_scans';
+    type: 'student' | 'car' | 'scan' | 'clear_scans' | 'clear_cache';
     id?: string;
     name?: string;
   } | null>(null);
 
-  const supabaseConnected = isSupabaseConnected();
+  const firebaseConnected = isFirebaseReady() || Boolean(firebaseUser && firebaseUser.emailVerified);
 
   // Reset Student Form
   const resetStudentForm = () => {
     setFormStudentCode('');
     setFormStudentName('');
     setFormStudentNickname('');
-    setFormStudentGrade('ม.1');
-    setFormStudentRoom('1');
+    setFormStudentGrade('');
+    setFormStudentRoom('');
     setFormStudentNumber('');
     setFormStudentDorm('หอ A');
     setFormStudentCar(cars[0]?.carID || 'CAR01');
@@ -197,8 +215,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setFormStudentCode(st.studentCode || st.studentId || st.student_id || st.id);
     setFormStudentName(st.name);
     setFormStudentNickname(st.nickname || '');
-    setFormStudentGrade(st.grade || 'ม.1');
-    setFormStudentRoom(st.room || (st.className ? st.className.split('/')[1] : '1'));
+    setFormStudentGrade(st.grade || st.className || '');
+    setFormStudentRoom('');
     setFormStudentNumber(st.seat_number != null ? String(st.seat_number) : (st.seatNumber != null ? String(st.seatNumber) : (st.number ? String(st.number) : '')));
     setFormStudentDorm(st.dorm || 'หอ A');
     setFormStudentCar(st.car_id || st.carID || st.busNumber || 'CAR01');
@@ -206,17 +224,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setFormStudentLat(st.latitude != null ? String(st.latitude) : '');
     setFormStudentLng(st.longitude != null ? String(st.longitude) : '');
     setFormStudentMapLink(st.map_link || st.mapLink || '');
-    setFormStudentParent(st.parent_name || st.parentName || st.parent || '');
+    setFormStudentParent('');
     setFormStudentPhone(st.parent_phone || st.parentPhone || '');
     setFormStudentStatus(st.status || 'ใช้งาน');
   };
 
-  // Save Student (Add / Edit) - Maps 100% to public.students
+  // Save Student (Add / Edit) - Maps 100% to Firestore students collection
   const handleSubmitStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formStudentCode.trim() || !formStudentName.trim()) return;
 
     const studentCode = formStudentCode.trim();
+    const dept = formStudentGrade.trim() || 'แผนกทั่วไป';
     const studentData: Student = {
       id: studentCode,
       studentId: studentCode,
@@ -226,10 +245,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       qr_code: studentCode,
       name: formStudentName.trim(),
       nickname: formStudentNickname.trim() || undefined,
-      grade: formStudentGrade,
-      room: formStudentRoom,
-      className: `${formStudentGrade}/${formStudentRoom}`,
-      classroom: `${formStudentGrade}/${formStudentRoom}`,
+      grade: dept,
+      room: '',
+      className: dept,
+      classroom: dept,
       number: formStudentNumber ? Number(formStudentNumber) : undefined,
       seatNumber: formStudentNumber ? Number(formStudentNumber) : undefined,
       seat_number: formStudentNumber ? Number(formStudentNumber) : undefined,
@@ -246,11 +265,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       longitude: formStudentLng ? Number(formStudentLng) : undefined,
       mapLink: formStudentMapLink.trim() || undefined,
       map_link: formStudentMapLink.trim() || undefined,
-      parent: formStudentParent || undefined,
-      parentName: formStudentParent || undefined,
-      parent_name: formStudentParent || undefined,
-      parentPhone: formStudentPhone || '081-000-0000',
-      parent_phone: formStudentPhone || '081-000-0000',
+      parent: undefined,
+      parentName: undefined,
+      parent_name: undefined,
+      parentPhone: formStudentPhone.trim() || '081-000-0000',
+      parent_phone: formStudentPhone.trim() || '081-000-0000',
       status: formStudentStatus,
       avatarColor: formStudentDorm.includes('B')
         ? 'bg-blue-500'
@@ -346,6 +365,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       await onDeleteScan(deleteConfirmItem.id);
     } else if (deleteConfirmItem.type === 'clear_scans' && onClearAllScans) {
       await onClearAllScans();
+    } else if (deleteConfirmItem.type === 'clear_cache' && onClearMockStudents) {
+      onClearMockStudents();
     }
 
     setDeleteConfirmItem(null);
@@ -357,32 +378,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const payload = JSON.stringify({
         code: selectedStudentForQR.studentCode,
         name: selectedStudentForQR.name,
-        grade: selectedStudentForQR.grade,
-        bus: selectedStudentForQR.busNumber,
+        grade: selectedStudentForQR.className || selectedStudentForQR.grade,
+        bus: selectedStudentForQR.busNumber || selectedStudentForQR.carID,
       });
       QRCode.toDataURL(payload, { width: 260, margin: 2 }).then(setSingleQrUrl);
     }
   }, [selectedStudentForQR]);
-
-  // Generate batch QR codes for selected bus
-  const generateQRCodes = async () => {
-    const targetStudents = students.filter(
-      (s) => !qrCar || s.busNumber === qrCar || s.carID === qrCar
-    );
-
-    const results: { student: Student; qrUrl: string }[] = [];
-    for (const student of targetStudents) {
-      const payload = JSON.stringify({
-        code: student.studentCode,
-        name: student.name,
-        grade: student.grade,
-        bus: student.busNumber || student.carID,
-      });
-      const url = await QRCode.toDataURL(payload, { width: 180, margin: 2 });
-      results.push({ student, qrUrl: url });
-    }
-    setGeneratedQRs(results);
-  };
 
   // Helper: Date Matching for Reports
   const isScanDateMatching = (scan: ScanRecord, targetDateYMD: string): boolean => {
@@ -487,9 +488,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const headers = [
       'ลำดับ',
       'ScanID',
-      'รหัสนักเรียน',
+      'รหัสพนักงาน',
       'ชื่อ-นามสกุล',
-      'ระดับชั้น',
+      'แผนก',
       'รหัสรถ',
       'สายรถ',
       'จุดสแกน',
@@ -540,7 +541,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       s.name.toLowerCase().includes(stuSearch.toLowerCase()) ||
       s.studentCode.toLowerCase().includes(stuSearch.toLowerCase()) ||
       (s.nickname && s.nickname.toLowerCase().includes(stuSearch.toLowerCase())) ||
-      s.grade.toLowerCase().includes(stuSearch.toLowerCase());
+      s.grade.toLowerCase().includes(stuSearch.toLowerCase()) ||
+      (s.className && s.className.toLowerCase().includes(stuSearch.toLowerCase())) ||
+      (s.seat_number != null && String(s.seat_number).includes(stuSearch.trim()));
 
     const matchCar = !stuCar || s.busNumber === stuCar || s.carID === stuCar;
     const matchGrade = !stuGrade || s.grade === stuGrade || s.className?.startsWith(stuGrade);
@@ -585,14 +588,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="admin-title text-center">
           <div className="flex items-center justify-center gap-2">
             <strong className="text-sm font-bold text-white">ระบบจัดการหลังบ้าน</strong>
-            {supabaseConnected ? (
+            {firebaseConnected ? (
               <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Supabase 100%
+                Firebase 100%
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                Local State
+                รอเข้าสู่ระบบ Google
               </span>
             )}
           </div>
@@ -612,32 +615,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <div className="bg-slate-900 border-b border-white/5 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5">
-            <Database className="w-3.5 h-3.5 text-emerald-400" />
+            <Database className="w-3.5 h-3.5 text-amber-400" />
             <span className="text-slate-300">ฐานข้อมูล:</span>
             <span className="text-emerald-400 font-mono text-[11px] bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
-              นักเรียน ({students.length}) • รถ ({cars.length}) • สแกน ({scans.length})
+              พนักงาน ({students.length}) • รถ ({cars.length}) • สแกน ({scans.length})
             </span>
           </div>
 
           <button
             type="button"
-            onClick={() => setActiveTab('supabase')}
-            className="text-[11px] px-2.5 py-0.5 rounded-md bg-teal-500/20 text-teal-300 border border-teal-500/30 hover:bg-teal-500/30 transition-colors flex items-center gap-1 font-semibold"
+            onClick={() => setActiveTab('firebase')}
+            className="text-[11px] px-2.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 transition-colors flex items-center gap-1 font-semibold"
           >
-            <span>⚡ Supabase Database (CRUD 100%)</span>
+            <span>🔥 Firebase Firestore (CRUD 100%)</span>
           </button>
         </div>
 
         <div className="flex items-center gap-2">
-          {onSyncFromSupabase && (
+          {onSyncFromFirebase && (
             <button
               type="button"
-              onClick={() => onSyncFromSupabase()}
-              disabled={isSyncingSupabase}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-medium text-xs shadow transition-all active:scale-95 disabled:opacity-50"
+              onClick={() => onSyncFromFirebase()}
+              disabled={isSyncingFirebase}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-medium text-xs shadow transition-all active:scale-95 disabled:opacity-50"
             >
-              <RefreshCw className={`w-3 h-3 ${isSyncingSupabase ? 'animate-spin' : ''}`} />
-              <span>{isSyncingSupabase ? 'กำลังซิงค์...' : 'ดึงสดจาก Supabase'}</span>
+              <RefreshCw className={`w-3 h-3 ${isSyncingFirebase ? 'animate-spin' : ''}`} />
+              <span>{isSyncingFirebase ? 'กำลังซิงค์...' : 'ดึงสดจาก Firebase'}</span>
             </button>
           )}
 
@@ -654,6 +657,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           )}
         </div>
       </div>
+
+      {/* Prominent Sign-In Notice inside Admin when Firebase Auth is not connected */}
+      {!firebaseConnected && (
+        <div className="bg-amber-950/70 border-b border-amber-500/30 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2 text-amber-200 min-w-0">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="truncate">
+              ยังไม่ได้เชื่อมต่อบัญชี Google — ข้อมูลรถและพนักงานที่เพิ่มจะเก็บคิวรอซิงค์ในเครื่องไว้ให้ชั่วคราว
+            </span>
+          </div>
+          {onOpenFirebaseAuth && (
+            <button
+              type="button"
+              onClick={onOpenFirebaseAuth}
+              className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] shrink-0 transition-colors"
+            >
+              เข้าสู่ระบบ Google เพื่อซิงค์ถาวร
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Navigation Tabs */}
       <div className="admin-tabs flex overflow-x-auto bg-slate-900/80 border-b border-white/5 p-1 gap-1" id="adminTabs">
@@ -684,7 +708,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onClick={() => setActiveTab('students')}
         >
           <User className="w-3.5 h-3.5" />
-          <span>นักเรียน ({students.length})</span>
+          <span>พนักงาน ({students.length})</span>
         </button>
         <button
           className={`at px-3 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1 ${
@@ -703,8 +727,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           type="button"
           onClick={() => setActiveTab('qrcode')}
         >
-          <QrCode className="w-3.5 h-3.5" />
-          <span>สร้าง QR Code</span>
+          <Printer className="w-3.5 h-3.5" />
+          <span>พิมพ์ QR Code (3.5×3.5)</span>
         </button>
         <button
           className={`at px-3 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1 ${
@@ -728,13 +752,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </button>
         <button
           className={`at px-3 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1 ${
-            activeTab === 'supabase' ? 'bg-teal-600 text-white shadow-md' : 'text-teal-400 hover:text-teal-200'
+            activeTab === 'firebase' ? 'bg-amber-600 text-white shadow-md' : 'text-amber-400 hover:text-amber-200'
           }`}
           type="button"
-          onClick={() => setActiveTab('supabase')}
+          onClick={() => setActiveTab('firebase')}
         >
-          <Database className="w-3.5 h-3.5 text-teal-300" />
-          <span>Supabase SQL & Sync</span>
+          <Database className="w-3.5 h-3.5 text-amber-300" />
+          <span>Firebase DB & Sync</span>
         </button>
       </div>
 
@@ -763,14 +787,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <div className="bg-slate-900 border border-white/10 p-4 rounded-2xl shadow-sm">
                 <div className="text-xs text-slate-400 flex items-center justify-between">
-                  <span>นักเรียนทั้งหมด</span>
+                  <span>พนักงานทั้งหมด</span>
                   <User className="w-4 h-4 text-blue-400" />
                 </div>
                 <div className="text-2xl font-bold text-white mt-2">
                   {students.length} <span className="text-xs text-slate-400 font-normal">คน</span>
                 </div>
                 <div className="text-[11px] text-blue-400 mt-1">
-                  ฐานข้อมูล Supabase
+                  ฐานข้อมูล Firebase
                 </div>
               </div>
 
@@ -852,7 +876,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
                   <Clock className="w-4 h-4 text-emerald-400" />
-                  <span>รายการสแกนล่าสุด (Supabase Live Scans)</span>
+                  <span>รายการสแกนล่าสุด (Firebase Live Scans)</span>
                 </h3>
                 <div className="flex items-center gap-2">
                   {onClearAllScans && scans.length > 0 && (
@@ -878,9 +902,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <thead>
                     <tr className="border-b border-white/10 text-slate-400">
                       <th className="py-2.5">เวลา</th>
-                      <th>รหัสนักเรียน</th>
+                      <th>รหัสพนักงาน</th>
                       <th>ชื่อ-สกุล</th>
-                      <th>ชั้น</th>
+                      <th>แผนก</th>
                       <th>สายรถ</th>
                       <th>จุดสแกน</th>
                       <th>จัดการ</th>
@@ -890,7 +914,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     {scans.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="text-center py-6 text-slate-500">
-                          ยังไม่มีประวัติการสแกนในระบบ Supabase
+                          ยังไม่มีประวัติการสแกนในระบบ Firebase Firestore
                         </td>
                       </tr>
                     ) : (
@@ -914,7 +938,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   })
                                 }
                                 className="p-1 rounded bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 transition-colors"
-                                title="ลบรายการสแกนนี้ออกจาก Supabase"
+                                title="ลบรายการสแกนนี้ออกจาก Firebase"
                               >
                                 <Trash2 className="w-3 h-3" />
                               </button>
@@ -955,7 +979,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
                   <input
                     className="w-full bg-slate-900 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                    placeholder="🔎 ค้นหา ชื่อ, รหัส, ชื่อเล่น, ชั้น..."
+                    placeholder="🔎 ค้นหา ชื่อ, รหัสพนักงาน, ชื่อเล่น, แผนก..."
                     value={stuSearch}
                     onChange={(e) => setStuSearch(e.target.value)}
                   />
@@ -995,7 +1019,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   id="btnImportExcel"
                   className="px-3.5 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 hover:text-emerald-200 border border-emerald-500/30 font-semibold text-xs flex items-center gap-1.5 shadow-sm transition-all active:scale-95"
                   onClick={() => setShowExcelModal(true)}
-                  title="นำเข้าไฟล์ Excel นักเรียน"
+                  title="นำเข้าไฟล์ Excel พนักงาน"
                 >
                   <Upload className="w-3.5 h-3.5 text-emerald-400" />
                   <span>นำเข้า Excel</span>
@@ -1019,44 +1043,60 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   id="btnExportStudents"
                   className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-white/10 font-medium text-xs flex items-center gap-1.5 transition-all active:scale-95"
                   onClick={() => exportStudentsToXLSX(students)}
-                  title="ส่งออกรายชื่อนักเรียนทั้งหมดเป็น Excel"
+                  title="ส่งออกรายชื่อพนักงานทั้งหมดเป็น Excel"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
                   <span>ส่งออก Excel</span>
                 </button>
 
-                {/* Fetch from Supabase Button */}
-                {onSyncFromSupabase && (
+                {/* Fetch from Firebase Button */}
+                {onSyncFromFirebase && (
                   <button
                     type="button"
-                    id="btnSyncSupabaseStudents"
-                    disabled={isSyncingSupabase}
-                    className="px-3 py-2 rounded-xl bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 border border-teal-500/30 font-semibold text-xs flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
-                    onClick={() => onSyncFromSupabase()}
-                    title="ดึงข้อมูลล่าสุดจากตาราง public.students บน Supabase 100%"
+                    id="btnSyncFirebaseStudents"
+                    disabled={isSyncingFirebase}
+                    className="px-3 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 font-semibold text-xs flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+                    onClick={() => onSyncFromFirebase()}
+                    title="ดึงข้อมูลล่าสุดจากคอลเล็กชัน students บน Firebase Firestore 100%"
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 text-teal-400 ${isSyncingSupabase ? 'animate-spin' : ''}`} />
-                    <span>{isSyncingSupabase ? 'กำลังดึง...' : '⚡ ดึงจาก Supabase'}</span>
+                    <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isSyncingFirebase ? 'animate-spin' : ''}`} />
+                    <span>{isSyncingFirebase ? 'กำลังดึง...' : '🔥 ดึงจาก Firebase'}</span>
                   </button>
                 )}
 
-                {/* Clear Mockdata Button */}
+                {/* Clear Cache Button */}
                 {onClearMockStudents && (
                   <button
                     type="button"
                     id="btnClearMockStudents"
                     className="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-rose-900/40 text-slate-400 hover:text-rose-300 border border-white/10 font-medium text-xs flex items-center gap-1.5 transition-all active:scale-95"
-                    onClick={() => {
-                      if (window.confirm('ต้องการล้างแคชในเครื่องทั้งหมดใช่หรือไม่? (ระบบจะโหลดเฉพาะข้อมูลจริงจาก Supabase Cloud 100%)')) {
-                        onClearMockStudents();
-                      }
-                    }}
-                    title="ล้างแคชในเครื่อง เพื่อโหลดข้อมูลจริงจาก Supabase 100%"
+                    onClick={() =>
+                      setDeleteConfirmItem({
+                        type: 'clear_cache',
+                        name: 'ล้างแคชในเครื่องและโหลดข้อมูลสดจาก Firebase Firestore 100%',
+                      })
+                    }
+                    title="ล้างแคชในเครื่อง เพื่อโหลดข้อมูลจริงจาก Firebase Firestore 100%"
                   >
                     <Trash2 className="w-3.5 h-3.5 text-slate-400" />
-                    <span>ล้างแคชเครื่อง (Supabase 100%)</span>
+                    <span>ล้างแคชเครื่อง (Firebase 100%)</span>
                   </button>
                 )}
+
+                {/* Print QR Codes Shortcut */}
+                <button
+                  type="button"
+                  id="btnGoToQrPrint"
+                  className="px-3 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-indigo-200 border border-indigo-500/30 font-semibold text-xs flex items-center gap-1.5 transition-all active:scale-95"
+                  onClick={() => {
+                    setQrPrintPreselectedId(null);
+                    setActiveTab('qrcode');
+                  }}
+                  title="เปิดหน้าสั่งพิมพ์บัตร QR Code ขนาด 3.5 × 3.5 ซม."
+                >
+                  <Printer className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>พิมพ์ QR 3.5×3.5 ซม.</span>
+                </button>
 
                 {/* Add Single Student */}
                 <button
@@ -1069,7 +1109,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   }}
                 >
                   <UserPlus className="w-3.5 h-3.5" />
-                  <span>+ เพิ่มนักเรียนใหม่</span>
+                  <span>+ เพิ่มพนักงานใหม่</span>
                 </button>
               </div>
             </div>
@@ -1080,8 +1120,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <span>
                   แสดงผล <strong>{filteredStudents.length}</strong> จากทั้งหมด {students.length} คน
                 </span>
-                <span className="text-emerald-400 font-mono text-[11px]">
-                  ⚡ Realtime Supabase PostgreSQL (public.students 100%)
+                <span className="text-amber-400 font-mono text-[11px]">
+                  🔥 Realtime Firebase Firestore (students 100%)
                 </span>
               </div>
 
@@ -1089,15 +1129,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <table className="table w-full text-xs text-left" id="stuTable">
                   <thead className="sticky top-0 bg-slate-900 z-10">
                     <tr className="border-b border-white/10 text-slate-400">
-                      <th className="py-2.5 px-3">รหัส (student_id)</th>
+                      <th className="py-2.5 px-3">รหัส QR (ID)</th>
                       <th>ชื่อ-นามสกุล</th>
                       <th>ชื่อเล่น</th>
-                      <th>ชั้น/ห้อง</th>
-                      <th>เลขที่ (seat)</th>
+                      <th>แผนก</th>
+                      <th>รหัสพนักงาน</th>
                       <th>หอพัก</th>
                       <th>สายรถ (car_id)</th>
                       <th>จุดขึ้นรถ</th>
-                      <th>ผู้ปกครอง/เบอร์</th>
+                      <th>เบอร์โทรศัพท์</th>
                       <th>สถานะ</th>
                       <th className="text-right px-3">จัดการ</th>
                     </tr>
@@ -1113,12 +1153,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <div className="space-y-1">
                               <p className="font-semibold text-sm text-white">
                                 {students.length === 0
-                                  ? 'ยังไม่มีข้อมูลนักเรียนในตาราง public.students ของ Supabase'
-                                  : 'ไม่พบข้อมูลนักเรียนที่ค้นหา'}
+                                  ? 'ยังไม่มีข้อมูลพนักงานในคอลเล็กชัน students ของ Firebase'
+                                  : 'ไม่พบข้อมูลพนักงานที่ค้นหา'}
                               </p>
                               <p className="text-xs text-slate-400">
                                 {students.length === 0
-                                  ? 'ระบบยกเลิก Mockdata แล้ว 100% สามารถเพิ่มนักเรียนใหม่เพื่อบันทึกลง Supabase หรือกดปุ่ม "ดึงจาก Supabase" ได้ทันที'
+                                  ? 'กรุณาเข้าสู่ระบบ Google แล้วกดปุ่ม "ดึงจาก Firebase" หรือไปที่แท็บ Firebase DB & Sync เพื่อย้ายรายชื่อพนักงาน 300 คน'
                                   : 'ลองตรวจสอบคำค้นหา หรือเลือกตัวกรองสายรถ / หอพักอีกครั้ง'}
                               </p>
                             </div>
@@ -1133,16 +1173,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-md transition-all active:scale-95"
                                 >
                                   <UserPlus className="w-3.5 h-3.5" />
-                                  <span>+ เพิ่มนักเรียนคนแรก</span>
+                                  <span>+ เพิ่มพนักงานคนแรก</span>
                                 </button>
-                                {onSyncFromSupabase && (
+                                {onSyncFromFirebase && (
                                   <button
                                     type="button"
-                                    onClick={() => onSyncFromSupabase()}
-                                    className="px-4 py-2 rounded-xl bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 border border-teal-500/40 font-semibold text-xs flex items-center gap-1.5 transition-all active:scale-95"
+                                    onClick={() => onSyncFromFirebase()}
+                                    className="px-4 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 font-semibold text-xs flex items-center gap-1.5 transition-all active:scale-95"
                                   >
-                                    <RefreshCw className={`w-3.5 h-3.5 text-teal-400 ${isSyncingSupabase ? 'animate-spin' : ''}`} />
-                                    <span>⚡ ดึงข้อมูลจาก Supabase</span>
+                                    <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isSyncingFirebase ? 'animate-spin' : ''}`} />
+                                    <span>🔥 ดึงข้อมูลจาก Firebase</span>
                                   </button>
                                 )}
                               </div>
@@ -1161,7 +1201,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </td>
                           <td className="font-semibold text-white">{st.name}</td>
                           <td className="text-slate-300">{st.nickname || '-'}</td>
-                          <td>{st.className || (st.grade ? `${st.grade}${st.room ? '/' + st.room : ''}` : '-')}</td>
+                          <td>{st.className || st.grade || '-'}</td>
                           <td className="font-mono text-slate-400">
                             {st.seat_number != null ? st.seat_number : (st.seatNumber != null ? st.seatNumber : (st.number || '-'))}
                           </td>
@@ -1177,7 +1217,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             {st.pickup_point || st.pickupPoint || st.pickup || st.busStopName || st.dormOrStop || '-'}
                           </td>
                           <td className="font-mono text-slate-300 text-[11px]">
-                            {st.parent_phone || st.parentPhone || st.parent || '-'}
+                            {st.parent_phone || st.parentPhone || '-'}
                           </td>
                           <td>
                             <span
@@ -1204,7 +1244,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 type="button"
                                 onClick={() => handleStartEditStudent(st)}
                                 className="p-1.5 rounded-lg bg-blue-950/60 hover:bg-blue-900/70 text-blue-300 text-[10px] transition-colors"
-                                title="แก้ไขข้อมูลใน Supabase"
+                                title="แก้ไขข้อมูลใน Firebase"
                               >
                                 <Edit className="w-3.5 h-3.5" />
                               </button>
@@ -1218,7 +1258,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   })
                                 }
                                 className="p-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900/70 text-rose-300 text-[10px] transition-colors"
-                                title="ลบออกจาก Supabase"
+                                title="ลบออกจาก Firebase"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -1243,10 +1283,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <Bus className="w-4 h-4 text-amber-400" />
-                  <span>ข้อมูลรถรับส่งนักเรียน (ตาราง: public.cars)</span>
+                  <span>ข้อมูลรถรับส่งพนักงาน (Collection: cars)</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  เชื่อมต่อกับ Supabase 100% เพิ่ม แก้ไข ลบ และดึงข้อมูลสด
+                  เชื่อมต่อกับ Firebase Firestore 100% เพิ่ม แก้ไข ลบ และดึงข้อมูลสด
                 </p>
               </div>
 
@@ -1284,7 +1324,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     {cars.length === 0 ? (
                       <tr>
                         <td colSpan={10} className="text-center py-8 text-slate-500">
-                          ยังไม่มีข้อมูลรถในระบบ Supabase
+                          ยังไม่มีข้อมูลรถในระบบ Firebase Firestore
                         </td>
                       </tr>
                     ) : (
@@ -1315,7 +1355,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 type="button"
                                 onClick={() => handleStartEditCar(car)}
                                 className="p-1.5 rounded-lg bg-blue-950/60 hover:bg-blue-900/70 text-blue-300 text-[10px] transition-colors"
-                                title="แก้ไขรถใน Supabase"
+                                title="แก้ไขรถใน Firebase"
                               >
                                 <Edit className="w-3.5 h-3.5" />
                               </button>
@@ -1329,7 +1369,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   })
                                 }
                                 className="p-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900/70 text-rose-300 text-[10px] transition-colors"
-                                title="ลบรถออกจาก Supabase"
+                                title="ลบรถออกจาก Firebase"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -1346,73 +1386,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         )}
 
         {/* ======================================================== */}
-        {/* TAB 4: QR CODES */}
+        {/* TAB 4: QR CODE PRINT STUDIO (3.5 x 3.5 CM A4) */}
         {/* ======================================================== */}
         {activeTab === 'qrcode' && (
-          <div className="space-y-4" id="tab-qrcode">
-            <div className="flex flex-wrap gap-2 items-center justify-between bg-slate-900 p-3 rounded-2xl border border-white/10">
-              <div className="flex items-center gap-2">
-                <select
-                  id="qrCar"
-                  className="bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
-                  value={qrCar}
-                  onChange={(e) => setQrCar(e.target.value)}
-                >
-                  <option value="">ทุกสายรถ ({students.length} คน)</option>
-                  {allBuses.map((b) => (
-                    <option key={b} value={b}>
-                      {b}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5"
-                  type="button"
-                  onClick={generateQRCodes}
-                >
-                  <QrCode className="w-3.5 h-3.5" />
-                  <span>สร้าง QR Code ทั้งหมด</span>
-                </button>
-              </div>
-
-              <button
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs flex items-center gap-1.5"
-                type="button"
-                onClick={() => window.print()}
-              >
-                <span>🖨️ พิมพ์บัตร QR</span>
-              </button>
-            </div>
-
-            <div className="bg-slate-900 border border-white/10 rounded-2xl p-4">
-              <div id="qrGrid" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {generatedQRs.length === 0 ? (
-                  <div className="col-span-full text-center py-12 text-slate-500 text-xs">
-                    เลือกสายรถแล้วกด &quot;สร้าง QR Code ทั้งหมด&quot; เพื่อแสดงบัตรพร้อม QR Code
-                  </div>
-                ) : (
-                  generatedQRs.map(({ student, qrUrl }) => (
-                    <div
-                      key={student.id}
-                      className="bg-slate-950 border border-white/10 p-3 rounded-2xl text-center flex flex-col items-center space-y-2 shadow-sm"
-                    >
-                      <div className="bg-white p-2 rounded-xl shadow-inner">
-                        <img src={qrUrl} alt={student.name} className="w-28 h-28" />
-                      </div>
-                      <div className="text-xs font-bold text-white truncate max-w-[150px]">
-                        {student.name}
-                      </div>
-                      <div className="text-[10px] text-amber-300 font-mono">
-                        {student.studentCode} • {student.grade}
-                      </div>
-                      <div className="text-[10px] text-slate-400">
-                        {student.busNumber || student.carID}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+          <div id="tab-qrcode">
+            <QRPrintPage
+              students={students}
+              cars={cars}
+              preselectedStudentId={qrPrintPreselectedId}
+              onClearPreselection={() => setQrPrintPreselectedId(null)}
+              onGoToStudents={() => setActiveTab('students')}
+            />
           </div>
         )}
 
@@ -1530,12 +1514,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="space-y-1">
                   <label className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
                     <Search className="w-3 h-3 text-purple-400" />
-                    <span>ค้นหานักเรียน / จุดสแกน</span>
+                    <span>ค้นหาพนักงาน / จุดสแกน</span>
                   </label>
                   <div className="relative">
                     <input
                       type="text"
-                      placeholder="พิมพ์ชื่อ, รหัสนักเรียน, หรือจุดรับส่ง..."
+                      placeholder="พิมพ์ชื่อ, รหัสพนักงาน, หรือจุดรับส่ง..."
                       className="bg-slate-800 border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white w-full pr-7 focus:outline-none focus:border-purple-500"
                       value={reportSearch}
                       onChange={(e) => setReportSearch(e.target.value)}
@@ -1800,20 +1784,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         )}
 
         {/* ======================================================== */}
-        {/* TAB 7: SUPABASE DATABASE & SQL */}
+        {/* TAB 7: FIREBASE DATABASE & MIGRATION */}
         {/* ======================================================== */}
-        {activeTab === 'supabase' && (
-          <div className="space-y-4" id="tab-supabase">
-            <SupabasePanel
-              onSyncFromSupabase={onSyncFromSupabase}
-              isSyncingSupabase={isSyncingSupabase}
+        {activeTab === 'firebase' && (
+          <div className="space-y-4" id="tab-firebase">
+            <FirebasePanel
+              firebaseUser={firebaseUser}
+              studentCount={students.length}
+              carCount={cars.length}
+              scanCount={scans.length}
+              users={users}
+              settings={settings}
+              onSyncFromFirebase={onSyncFromFirebase}
+              isSyncingFirebase={isSyncingFirebase}
+              onUpsertUser={onUpsertUser}
+              onDeleteUser={onDeleteUser}
+              onUpsertSetting={onUpsertSetting}
+              onDeleteSetting={onDeleteSetting}
             />
           </div>
         )}
       </div>
 
       {/* ======================================================== */}
-      {/* MODAL: ADD / EDIT STUDENT (Supabase 100%) */}
+      {/* MODAL: ADD / EDIT STUDENT (Firebase Firestore 100%) */}
       {/* ======================================================== */}
       {(isAddingStudent || editingStudent) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -1821,7 +1815,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <UserPlus className="w-4 h-4 text-emerald-400" />
-                <span>{editingStudent ? 'แก้ไขข้อมูลนักเรียน (Supabase)' : 'เพิ่มนักเรียนใหม่ (Supabase)'}</span>
+                <span>{editingStudent ? 'แก้ไขข้อมูลพนักงาน (Firebase)' : 'เพิ่มพนักงานใหม่ (Firebase)'}</span>
               </h3>
               <button
                 type="button"
@@ -1835,12 +1829,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <form onSubmit={handleSubmitStudent} className="space-y-3.5 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-slate-300 font-semibold block mb-1">รหัสนักเรียน (student_id) *</label>
+                  <label className="text-slate-300 font-semibold block mb-1">รหัส QR / ID พนักงาน (student_id) *</label>
                   <input
                     required
                     disabled={Boolean(editingStudent)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono disabled:opacity-60"
-                    placeholder="เช่น STD0301"
+                    placeholder="เช่น EMP0301"
                     value={formStudentCode}
                     onChange={(e) => setFormStudentCode(e.target.value)}
                   />
@@ -1849,7 +1843,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <label className="text-slate-300 font-semibold block mb-1">ชื่อเล่น (nickname)</label>
                   <input
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                    placeholder="เช่น น้องโบ๊ท"
+                    placeholder="เช่น โบ๊ท"
                     value={formStudentNickname}
                     onChange={(e) => setFormStudentNickname(e.target.value)}
                   />
@@ -1861,43 +1855,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <input
                   required
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                  placeholder="เช่น ด.ช. กานต์ ธนบดี"
+                  placeholder="เช่น นายกานต์ ธนบดี"
                   value={formStudentName}
                   onChange={(e) => setFormStudentName(e.target.value)}
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-slate-300 font-semibold block mb-1">ระดับชั้น (grade)</label>
-                  <select
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                    value={formStudentGrade}
-                    onChange={(e) => setFormStudentGrade(e.target.value)}
-                  >
-                    <option value="ม.1">ม.1</option>
-                    <option value="ม.2">ม.2</option>
-                    <option value="ม.3">ม.3</option>
-                    <option value="ม.4">ม.4</option>
-                    <option value="ม.5">ม.5</option>
-                    <option value="ม.6">ม.6</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-slate-300 font-semibold block mb-1">ห้อง (room)</label>
+                  <label className="text-slate-300 font-semibold block mb-1">แผนก</label>
                   <input
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                    placeholder="1"
-                    value={formStudentRoom}
-                    onChange={(e) => setFormStudentRoom(e.target.value)}
+                    placeholder="เช่น ฝ่ายผลิต / บัญชี / ไอที"
+                    value={formStudentGrade}
+                    onChange={(e) => setFormStudentGrade(e.target.value)}
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 font-semibold block mb-1">เลขที่ (seat_number)</label>
+                  <label className="text-slate-300 font-semibold block mb-1">รหัสพนักงาน</label>
                   <input
                     type="number"
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
-                    placeholder="12"
+                    placeholder="เช่น 101"
                     value={formStudentNumber}
                     onChange={(e) => setFormStudentNumber(e.target.value)}
                   />
@@ -1912,11 +1891,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     value={formStudentDorm}
                     onChange={(e) => setFormStudentDorm(e.target.value)}
                   >
-                    <option value="หอ A">หอ A (ชาย ม.ต้น)</option>
-                    <option value="หอ B">หอ B (หญิง ม.ต้น)</option>
-                    <option value="หอ C">หอ C (ชาย ม.ปลาย)</option>
-                    <option value="หอ D">หอ D (หญิง ม.ปลาย)</option>
-                    <option value="หอ E">หอ E (หอนานาชาติ)</option>
+                    <option value="หอ A">หอ A</option>
+                    <option value="หอ B">หอ B</option>
+                    <option value="หอ C">หอ C</option>
+                    <option value="หอ D">หอ D</option>
+                    <option value="หอ E">หอ E</option>
                   </select>
                 </div>
                 <div>
@@ -1939,7 +1918,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <label className="text-slate-300 font-semibold block mb-1">จุดขึ้นรถ / รับส่ง (pickup_point)</label>
                 <input
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                  placeholder="เช่น หน้าหอพัก A หรือ ประตู 1 โรงเรียน"
+                  placeholder="เช่น หน้าหอพัก A หรือ ประตู 1"
                   value={formStudentStop}
                   onChange={(e) => setFormStudentStop(e.target.value)}
                 />
@@ -1980,25 +1959,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-slate-300 font-semibold block mb-1">ชื่อผู้ปกครอง (parent_name)</label>
-                  <input
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                    placeholder="เช่น คุณพ่อสมศักดิ์"
-                    value={formStudentParent}
-                    onChange={(e) => setFormStudentParent(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-300 font-semibold block mb-1">เบอร์โทรผู้ปกครอง (parent_phone)</label>
-                  <input
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
-                    placeholder="081-234-5678"
-                    value={formStudentPhone}
-                    onChange={(e) => setFormStudentPhone(e.target.value)}
-                  />
-                </div>
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">เบอร์โทรศัพท์ (phone)</label>
+                <input
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                  placeholder="081-234-5678"
+                  value={formStudentPhone}
+                  onChange={(e) => setFormStudentPhone(e.target.value)}
+                />
               </div>
 
               <div>
@@ -2009,7 +1977,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   onChange={(e) => setFormStudentStatus(e.target.value)}
                 >
                   <option value="ใช้งาน">ใช้งาน (Active)</option>
-                  <option value="ลาพักการศึกษา">ลาพักการศึกษา</option>
+                  <option value="ลาพักงาน">ลาพักงาน</option>
                   <option value="ระงับการใช้">ระงับการใช้</option>
                 </select>
               </div>
@@ -2026,7 +1994,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   type="submit"
                   className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-lg shadow-emerald-900/40"
                 >
-                  {editingStudent ? 'บันทึกการแก้ไข (Update)' : 'บันทึกลง Supabase (Insert)'}
+                  {editingStudent ? 'บันทึกการแก้ไข (Update)' : 'บันทึกลง Firebase (Insert)'}
                 </button>
               </div>
             </form>
@@ -2035,7 +2003,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* ======================================================== */}
-      {/* MODAL: ADD / EDIT CAR (Supabase 100%) */}
+      {/* MODAL: ADD / EDIT CAR (Firebase Firestore 100%) */}
       {/* ======================================================== */}
       {(isAddingCar || editingCar) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -2043,7 +2011,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <Bus className="w-4 h-4 text-amber-400" />
-                <span>{editingCar ? 'แก้ไขข้อมูลรถรับส่ง (Supabase)' : 'เพิ่มรถรับส่งใหม่ (Supabase)'}</span>
+                <span>{editingCar ? 'แก้ไขข้อมูลรถรับส่ง (Firebase)' : 'เพิ่มรถรับส่งใหม่ (Firebase)'}</span>
               </h3>
               <button
                 type="button"
@@ -2167,7 +2135,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   type="submit"
                   className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold shadow-lg shadow-amber-900/40"
                 >
-                  {editingCar ? 'บันทึกการแก้ไขรถ (Update)' : 'บันทึกรถลง Supabase (Insert)'}
+                  {editingCar ? 'บันทึกการแก้ไขรถ (Update)' : 'บันทึกรถลง Firebase (Insert)'}
                 </button>
               </div>
             </form>
@@ -2186,9 +2154,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
 
             <div>
-              <h3 className="text-base font-bold text-white">ยืนยันการลบข้อมูล?</h3>
+              <h3 className="text-base font-bold text-white">ยืนยันการดำเนินการ?</h3>
               <p className="text-xs text-slate-300 mt-1">
-                คุณต้องการลบ <strong className="text-rose-400">{deleteConfirmItem.name}</strong> ออกจาก Supabase ใช่หรือไม่?
+                คุณต้องการลบ <strong className="text-rose-400">{deleteConfirmItem.name}</strong> ออกจาก Firebase ใช่หรือไม่?
               </p>
               <p className="text-[11px] text-slate-500 mt-1">
                 การดำเนินการนี้จะลบข้อมูลออกจากระบบฐานข้อมูลคลาวด์ทันที
@@ -2216,7 +2184,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* ======================================================== */}
-      {/* MODAL: SINGLE STUDENT QR */}
+      {/* MODAL: SINGLE EMPLOYEE QR */}
       {/* ======================================================== */}
       {selectedStudentForQR && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -2228,19 +2196,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div>
               <div className="font-bold text-white text-sm">{selectedStudentForQR.name}</div>
               <div className="text-xs text-amber-400 font-mono">
-                {selectedStudentForQR.studentCode} • {selectedStudentForQR.grade}
+                {selectedStudentForQR.studentCode} • {selectedStudentForQR.className || selectedStudentForQR.grade}
               </div>
               <div className="text-[11px] text-slate-400 mt-0.5">
                 {selectedStudentForQR.busNumber || selectedStudentForQR.carID} • {selectedStudentForQR.dorm}
               </div>
             </div>
-            <button
-              type="button"
-              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs"
-              onClick={() => setSelectedStudentForQR(null)}
-            >
-              ปิด
-            </button>
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5"
+                onClick={() => {
+                  const key =
+                    selectedStudentForQR.id ||
+                    selectedStudentForQR.student_id ||
+                    selectedStudentForQR.studentCode;
+                  setQrPrintPreselectedId(key);
+                  setSelectedStudentForQR(null);
+                  setActiveTab('qrcode');
+                }}
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>สั่งพิมพ์ (3.5×3.5 ซม.)</span>
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs"
+                onClick={() => setSelectedStudentForQR(null)}
+              >
+                ปิด
+              </button>
+            </div>
           </div>
         </div>
       )}

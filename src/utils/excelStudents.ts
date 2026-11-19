@@ -6,73 +6,63 @@ import { Student, ScanRecord } from '../types';
  */
 const TEMPLATE_SAMPLE_ROWS = [
   {
-    'รหัสนักเรียน': '10001',
-    'ชื่อ-นามสกุล': 'เด็กชายธนภัทร รัตนเวช',
+    'รหัส QR (ID)': '10001',
+    'ชื่อ-นามสกุล': 'นายธนภัทร รัตนเวช',
     'ชื่อเล่น': 'ภัทร',
-    'ระดับชั้น': 'ม.1',
-    'ห้อง': '1',
-    'เลขที่': '1',
+    'แผนก': 'ฝ่ายผลิต',
+    'รหัสพนักงาน': '101',
     'หอพัก': 'หอ A',
     'สายรถ': 'CAR01',
     'จุดขึ้นรถ': 'จุดรับส่งหน้าหอ A',
-    'ชื่อผู้ปกครอง': 'คุณสมศักดิ์ รัตนเวช',
-    'เบอร์โทรผู้ปกครอง': '081-234-5678',
+    'เบอร์โทรศัพท์': '081-234-5678',
     'สถานะ': 'ปกติ',
   },
   {
-    'รหัสนักเรียน': '10002',
-    'ชื่อ-นามสกุล': 'เด็กหญิงกัญญาณัฐ วงศ์วิจิตร',
+    'รหัส QR (ID)': '10002',
+    'ชื่อ-นามสกุล': 'นางสาวกัญญาณัฐ วงศ์วิจิตร',
     'ชื่อเล่น': 'ปลาย',
-    'ระดับชั้น': 'ม.1',
-    'ห้อง': '1',
-    'เลขที่': '2',
+    'แผนก': 'บัญชี',
+    'รหัสพนักงาน': '102',
     'หอพัก': 'หอ B',
     'สายรถ': 'CAR02',
-    'จุดขึ้นรถ': 'ซุ้มประตูโรงเรียน',
-    'ชื่อผู้ปกครอง': 'คุณรัตนา วงศ์วิจิตร',
-    'เบอร์โทรผู้ปกครอง': '089-876-5432',
+    'จุดขึ้นรถ': 'จุดรับส่งโซน B',
+    'เบอร์โทรศัพท์': '089-876-5432',
     'สถานะ': 'ปกติ',
   },
   {
-    'รหัสนักเรียน': '10003',
-    'ชื่อ-นามสกุล': 'เด็กชายชินดนัย เมธากุล',
+    'รหัส QR (ID)': '10003',
+    'ชื่อ-นามสกุล': 'นายชินดนัย เมธากุล',
     'ชื่อเล่น': 'ชิน',
-    'ระดับชั้น': 'ม.2',
-    'ห้อง': '2',
-    'เลขที่': '5',
+    'แผนก': 'คลังสินค้า',
+    'รหัสพนักงาน': '105',
     'หอพัก': 'หอ C',
     'สายรถ': 'CAR03',
     'จุดขึ้นรถ': 'อาคาร 4 โดมกีฬา',
-    'ชื่อผู้ปกครอง': 'คุณกฤษดา เมธากุล',
-    'เบอร์โทรผู้ปกครอง': '086-555-1234',
+    'เบอร์โทรศัพท์': '086-555-1234',
     'สถานะ': 'ปกติ',
   },
   {
-    'รหัสนักเรียน': '10004',
-    'ชื่อ-นามสกุล': 'เด็กหญิงวรินทร จินดารัตน์',
+    'รหัส QR (ID)': '10004',
+    'ชื่อ-นามสกุล': 'นางสาววรินทร จินดารัตน์',
     'ชื่อเล่น': 'มิ้นท์',
-    'ระดับชั้น': 'ม.3',
-    'ห้อง': '1',
-    'เลขที่': '10',
+    'แผนก': 'ฝ่ายบุคคล',
+    'รหัสพนักงาน': '110',
     'หอพัก': 'หอ A',
     'สายรถ': 'CAR01',
     'จุดขึ้นรถ': 'ศาลาหน้าหอพัก A',
-    'ชื่อผู้ปกครอง': 'คุณสุดา จินดารัตน์',
-    'เบอร์โทรผู้ปกครอง': '084-333-9876',
+    'เบอร์โทรศัพท์': '084-333-9876',
     'สถานะ': 'ปกติ',
   },
   {
-    'รหัสนักเรียน': '10005',
-    'ชื่อ-นามสกุล': 'เด็กชายณภัทร ปัญญาวงศ์',
+    'รหัส QR (ID)': '10005',
+    'ชื่อ-นามสกุล': 'นายณภัทร ปัญญาวงศ์',
     'ชื่อเล่น': 'เจแปน',
-    'ระดับชั้น': 'ม.4',
-    'ห้อง': '3',
-    'เลขที่': '14',
+    'แผนก': 'ไอที',
+    'รหัสพนักงาน': '114',
     'หอพัก': 'หอ B',
     'สายรถ': 'CAR02',
-    'จุดขึ้นรถ': 'จุดรวมพลเสาธง',
-    'ชื่อผู้ปกครอง': 'คุณณัฐวุฒิ ปัญญาวงศ์',
-    'เบอร์โทรผู้ปกครอง': '082-999-4455',
+    'จุดขึ้นรถ': 'จุดรวมพลหน้าอาคาร',
+    'เบอร์โทรศัพท์': '082-999-4455',
     'สถานะ': 'ปกติ',
   },
 ];
@@ -89,7 +79,7 @@ const AVATAR_COLORS = [
 ];
 
 /**
- * Export sample template for student import
+ * Export sample template for employee import
  */
 export function exportStudentTemplateXLSX(): void {
   const wb = XLSX.utils.book_new();
@@ -97,22 +87,20 @@ export function exportStudentTemplateXLSX(): void {
 
   // Set column widths
   ws['!cols'] = [
-    { wch: 14 }, // รหัสนักเรียน
+    { wch: 16 }, // รหัส QR (ID)
     { wch: 28 }, // ชื่อ-นามสกุล
     { wch: 12 }, // ชื่อเล่น
-    { wch: 12 }, // ระดับชั้น
-    { wch: 8 },  // ห้อง
-    { wch: 8 },  // เลขที่
+    { wch: 16 }, // แผนก
+    { wch: 14 }, // รหัสพนักงาน
     { wch: 12 }, // หอพัก
     { wch: 12 }, // สายรถ
     { wch: 24 }, // จุดขึ้นรถ
-    { wch: 24 }, // ชื่อผู้ปกครอง
-    { wch: 16 }, // เบอร์โทรผู้ปกครอง
+    { wch: 16 }, // เบอร์โทรศัพท์
     { wch: 10 }, // สถานะ
   ];
 
-  XLSX.utils.book_append_sheet(wb, ws, 'แม่แบบนักเรียน');
-  XLSX.writeFile(wb, 'student_import_template.xlsx');
+  XLSX.utils.book_append_sheet(wb, ws, 'แม่แบบพนักงาน');
+  XLSX.writeFile(wb, 'employee_import_template.xlsx');
 }
 
 /**
@@ -122,26 +110,24 @@ export function exportStudentTemplateCSV(): void {
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(TEMPLATE_SAMPLE_ROWS);
   XLSX.utils.book_append_sheet(wb, ws, 'Template');
-  XLSX.writeFile(wb, 'student_import_template.csv');
+  XLSX.writeFile(wb, 'employee_import_template.csv');
 }
 
 /**
- * Export current students list to Excel file
+ * Export current employees list to Excel file
  */
-export function exportStudentsToXLSX(students: Student[], filename = 'students_export.xlsx'): void {
+export function exportStudentsToXLSX(students: Student[], filename = 'employees_export.xlsx'): void {
   const rows = students.map((s, index) => ({
     'ลำดับ': index + 1,
-    'รหัสนักเรียน': s.studentCode || s.id,
+    'รหัส QR (ID)': s.studentCode || s.id,
     'ชื่อ-นามสกุล': s.name,
     'ชื่อเล่น': s.nickname || '',
-    'ระดับชั้น': s.grade || s.className || '',
-    'ห้อง': s.room || s.classroom || '',
-    'เลขที่': s.number || '',
+    'แผนก': s.grade || s.className || '',
+    'รหัสพนักงาน': s.seat_number ?? s.seatNumber ?? s.number ?? '',
     'หอพัก': s.dorm || '',
     'สายรถ': s.busNumber || s.carID || '',
     'จุดขึ้นรถ': s.pickup || s.busStopName || s.dormOrStop || '',
-    'ชื่อผู้ปกครอง': s.parent || '',
-    'เบอร์โทรผู้ปกครอง': s.parentPhone || '',
+    'เบอร์โทรศัพท์': s.parentPhone || s.parent_phone || '',
     'สถานะ': s.status || 'ปกติ',
   }));
 
@@ -150,21 +136,19 @@ export function exportStudentsToXLSX(students: Student[], filename = 'students_e
 
   ws['!cols'] = [
     { wch: 6 },
-    { wch: 14 },
+    { wch: 16 },
     { wch: 28 },
     { wch: 12 },
-    { wch: 12 },
-    { wch: 8 },
-    { wch: 8 },
+    { wch: 16 },
+    { wch: 14 },
     { wch: 12 },
     { wch: 14 },
     { wch: 26 },
-    { wch: 24 },
     { wch: 16 },
     { wch: 10 },
   ];
 
-  XLSX.utils.book_append_sheet(wb, ws, 'รายชื่อนักเรียน');
+  XLSX.utils.book_append_sheet(wb, ws, 'รายชื่อพนักงาน');
   XLSX.writeFile(wb, filename);
 }
 
@@ -176,9 +160,9 @@ export function exportScansToXLSX(scans: ScanRecord[], filename = 'scan_report.x
     'ลำดับ': idx + 1,
     'วันที่': s.dateThai || '',
     'เวลา': s.timeThai || '',
-    'รหัสนักเรียน': s.studentCode || '',
+    'รหัสพนักงาน': s.studentCode || '',
     'ชื่อ-นามสกุล': s.name || '',
-    'ระดับชั้น': s.grade || '',
+    'แผนก': s.grade || '',
     'สายรถ': s.busNumber || s.carID || '',
     'สถานะ': s.scanType || 'ขึ้นรถ',
     'จุดสแกน': s.locationName || s.dorm || '',
@@ -197,7 +181,7 @@ export function exportScansToXLSX(scans: ScanRecord[], filename = 'scan_report.x
     { wch: 12 },
     { wch: 14 },
     { wch: 26 },
-    { wch: 12 },
+    { wch: 16 },
     { wch: 12 },
     { wch: 12 },
     { wch: 24 },
@@ -251,7 +235,6 @@ export async function parseStudentExcelFile(
     let dorm = '';
     let busNumber = '';
     let pickup = '';
-    let parent = '';
     let parentPhone = '';
     let status = 'ปกติ';
 
@@ -261,9 +244,19 @@ export async function parseStudentExcelFile(
       if (!strVal) continue;
 
       if (
+        k.includes('รหัสพนักงาน') ||
+        k.includes('empid') ||
+        k.includes('employeecode') ||
+        k.includes('เลขที่') ||
+        k.includes('number') ||
+        k === 'no'
+      ) {
+        number = strVal;
+      } else if (
         k.includes('รหัส') ||
         k.includes('studentcode') ||
         k.includes('stdcode') ||
+        k.includes('qrcode') ||
         k === 'code' ||
         k === 'id'
       ) {
@@ -273,6 +266,7 @@ export async function parseStudentExcelFile(
         k.includes('ชื่อสกุล') ||
         k.includes('fullname') ||
         k.includes('studentname') ||
+        k.includes('employeename') ||
         k === 'ชื่อ' ||
         k === 'name'
       ) {
@@ -280,6 +274,10 @@ export async function parseStudentExcelFile(
       } else if (k.includes('ชื่อเล่น') || k.includes('nickname') || k === 'nick') {
         nickname = strVal;
       } else if (
+        k.includes('แผนก') ||
+        k.includes('ฝ่าย') ||
+        k.includes('department') ||
+        k.includes('dept') ||
         k.includes('ระดับชั้น') ||
         k.includes('ชั้น') ||
         k.includes('grade') ||
@@ -288,8 +286,6 @@ export async function parseStudentExcelFile(
         grade = strVal;
       } else if (k.includes('ห้อง') || k.includes('room') || k.includes('classroom')) {
         room = strVal;
-      } else if (k.includes('เลขที่') || k.includes('number') || k === 'no') {
-        number = strVal;
       } else if (k.includes('หอพัก') || k.includes('หอ') || k.includes('dorm')) {
         dorm = strVal;
       } else if (
@@ -310,8 +306,6 @@ export async function parseStudentExcelFile(
         k.includes('stop')
       ) {
         pickup = strVal;
-      } else if (k.includes('ผู้ปกครอง') || k.includes('parent') || k.includes('guardian')) {
-        parent = strVal;
       } else if (
         k.includes('เบอร์') ||
         k.includes('โทร') ||
@@ -323,6 +317,11 @@ export async function parseStudentExcelFile(
       } else if (k.includes('สถานะ') || k.includes('status')) {
         status = strVal;
       }
+    }
+
+    // Fallback: if sheet only provided รหัสพนักงาน and not รหัส QR
+    if (!studentCode && number) {
+      studentCode = number;
     }
 
     // Validation
@@ -346,14 +345,15 @@ export async function parseStudentExcelFile(
       ? busNumber.toUpperCase()
       : busNumber || 'CAR01';
 
-    const fullClassName = grade && room ? `${grade}/${room}` : grade || 'ม.1';
+    const resolvedDept = grade || 'แผนกทั่วไป';
+    const fullClassName = room ? `${resolvedDept}/${room}` : resolvedDept;
 
     const student: Student = {
       id: studentCode,
       studentCode,
       name,
       nickname,
-      grade: grade || 'ม.1',
+      grade: resolvedDept,
       room,
       classroom: fullClassName,
       className: fullClassName,
@@ -361,10 +361,9 @@ export async function parseStudentExcelFile(
       dorm: dorm || 'หอ A',
       carID: normalizedCar,
       busNumber: normalizedCar,
-      dormOrStop: pickup || 'จุดรับส่งหน้าโรงเรียน',
-      busStopName: pickup || 'จุดรับส่งหน้าโรงเรียน',
-      pickup: pickup || 'จุดรับส่งหน้าโรงเรียน',
-      parent,
+      dormOrStop: pickup || 'จุดรับส่งพนักงาน',
+      busStopName: pickup || 'จุดรับส่งพนักงาน',
+      pickup: pickup || 'จุดรับส่งพนักงาน',
       parentPhone: parentPhone || '-',
       status: status || 'ปกติ',
       avatarColor: color,

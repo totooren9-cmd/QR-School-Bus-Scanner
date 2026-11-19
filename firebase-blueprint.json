@@ -1,0 +1,544 @@
+{
+  "entities": {
+    "Student": {
+      "title": "Student",
+      "description": "School bus student profile, route assignment, pickup coordinates, and parent contact.",
+      "type": "object",
+      "properties": {
+        "student_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique Firestore-safe student document ID"
+        },
+        "qr_code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Student QR code payload/identifier"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Full name of the student"
+        },
+        "nickname": {
+          "type": ["string", "null"],
+          "maxLength": 100,
+          "description": "Student nickname"
+        },
+        "grade": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Grade level"
+        },
+        "room": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Classroom number"
+        },
+        "className": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Formatted grade/room string"
+        },
+        "seat_number": {
+          "type": ["number", "null"],
+          "description": "Seat or roster number"
+        },
+        "dorm": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Dormitory or zone"
+        },
+        "car_id": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Assigned bus car ID"
+        },
+        "plate": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Assigned bus license plate"
+        },
+        "pickup_point": {
+          "type": ["string", "null"],
+          "maxLength": 300,
+          "description": "Bus stop or pickup point name"
+        },
+        "latitude": {
+          "type": ["number", "null"],
+          "description": "Pickup GPS latitude"
+        },
+        "longitude": {
+          "type": ["number", "null"],
+          "description": "Pickup GPS longitude"
+        },
+        "map_link": {
+          "type": ["string", "null"],
+          "maxLength": 500,
+          "description": "Google Maps URL for pickup point"
+        },
+        "parent_name": {
+          "type": ["string", "null"],
+          "maxLength": 200,
+          "description": "Parent or guardian name"
+        },
+        "parent_phone": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Parent or guardian phone number"
+        },
+        "status": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Enrollment / active status"
+        },
+        "qr_image": {
+          "type": ["string", "null"],
+          "maxLength": 500,
+          "description": "QR code image URL"
+        },
+        "avatarColor": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "UI avatar badge Tailwind class"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the user who created/owns the record"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": [
+        "student_id",
+        "qr_code",
+        "name",
+        "grade",
+        "dorm",
+        "car_id",
+        "status",
+        "ownerId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Car": {
+      "title": "Car",
+      "description": "School bus vehicle, driver, attendant, capacity, and route information.",
+      "type": "object",
+      "properties": {
+        "car_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique bus car identifier"
+        },
+        "plate_number": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50,
+          "description": "Vehicle license plate"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Bus display name"
+        },
+        "route": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Assigned route or dormitory zone"
+        },
+        "driver_name": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Driver full name"
+        },
+        "driver_phone": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Driver phone number"
+        },
+        "attendant_name": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Bus attendant full name"
+        },
+        "capacity": {
+          "type": "number",
+          "description": "Seat capacity"
+        },
+        "status": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Operational status"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the user who created/owns the record"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": [
+        "car_id",
+        "plate_number",
+        "name",
+        "capacity",
+        "status",
+        "ownerId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ScanRecord": {
+      "title": "ScanRecord",
+      "description": "QR scan check-in / check-out event with GPS coordinates and timestamp.",
+      "type": "object",
+      "properties": {
+        "scan_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique scan event ID"
+        },
+        "timestamp": {
+          "type": "number",
+          "description": "Epoch milliseconds of scan"
+        },
+        "scan_date": {
+          "type": "string",
+          "maxLength": 30,
+          "description": "ISO date YYYY-MM-DD"
+        },
+        "dateThai": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Formatted Thai date"
+        },
+        "scan_time": {
+          "type": "string",
+          "maxLength": 30,
+          "description": "24-hour time HH:MM:SS"
+        },
+        "timeThai": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Formatted Thai time"
+        },
+        "student_id": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Scanned student ID"
+        },
+        "student_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Student name at scan time"
+        },
+        "grade": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Student grade or class"
+        },
+        "car_id": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Bus ID"
+        },
+        "plate_number": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Bus plate number"
+        },
+        "dorm": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Dormitory"
+        },
+        "location_name": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Pickup or scan location name"
+        },
+        "scan_type": {
+          "type": "string",
+          "enum": ["ขึ้นรถ", "ลงรถ"],
+          "maxLength": 20,
+          "description": "Boarding or alighting type"
+        },
+        "scan_source": {
+          "type": "string",
+          "enum": ["camera", "upload", "simulated"],
+          "maxLength": 20,
+          "description": "Source of QR scan"
+        },
+        "scanner_by": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Staff or scanner name"
+        },
+        "scanner_device": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Device identifier"
+        },
+        "scan_result": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Scan status result"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Optional note"
+        },
+        "latitude": {
+          "type": "number",
+          "description": "GPS latitude"
+        },
+        "longitude": {
+          "type": "number",
+          "description": "GPS longitude"
+        },
+        "avatar": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "QR or avatar image URL"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the user who recorded the scan"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": [
+        "scan_id",
+        "timestamp",
+        "scan_date",
+        "scan_time",
+        "student_id",
+        "student_name",
+        "car_id",
+        "scan_type",
+        "scan_source",
+        "latitude",
+        "longitude",
+        "ownerId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AppUser": {
+      "title": "AppUser",
+      "description": "System operator / staff account metadata.",
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "User record ID"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Display name"
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Operator email"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["Admin", "Staff", "Viewer"],
+          "maxLength": 30,
+          "description": "Role within bus operations"
+        },
+        "car_id": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Assigned bus or ALL"
+        },
+        "status": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Account status"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of creator/owner"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": [
+        "user_id",
+        "name",
+        "email",
+        "role",
+        "car_id",
+        "status",
+        "ownerId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SystemSetting": {
+      "title": "SystemSetting",
+      "description": "System configuration key-value record.",
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Setting key"
+        },
+        "value": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Setting value"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Thai description of setting"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of creator/owner"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": [
+        "key",
+        "value",
+        "description",
+        "ownerId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminRole": {
+      "title": "AdminRole",
+      "description": "Admin role assignment document keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID"
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Admin email"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        }
+      },
+      "required": ["uid", "email", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/students/{studentId}": {
+      "schema": { "$ref": "#/entities/Student" },
+      "description": "Collection of all school bus students (300+ records)"
+    },
+    "/cars/{carId}": {
+      "schema": { "$ref": "#/entities/Car" },
+      "description": "Collection of school buses, drivers, and routes"
+    },
+    "/scans/{scanId}": {
+      "schema": { "$ref": "#/entities/ScanRecord" },
+      "description": "Collection of real-time student QR boarding and alighting scans"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/AppUser" },
+      "description": "Collection of staff, admin, and viewer operator profiles"
+    },
+    "/settings/{settingKey}": {
+      "schema": { "$ref": "#/entities/SystemSetting" },
+      "description": "Collection of system-wide configuration settings"
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminRole" },
+      "description": "Admin role registry keyed by Firebase Auth UID"
+    }
+  }
+}

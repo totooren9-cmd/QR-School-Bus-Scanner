@@ -9,8 +9,7 @@ interface CameraHalfProps {
   onOpenTestScanModal?: () => void;
   activeScan: ScanRecord | null;
   totalScans: number;
-  isSupabaseReady?: boolean;
-  onOpenSupabaseConfig?: () => void;
+  onCameraActiveChange?: (active: boolean) => void;
 }
 
 interface FocusRing {
@@ -25,8 +24,7 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
   onOpenTestScanModal,
   activeScan,
   totalScans,
-  isSupabaseReady = false,
-  onOpenSupabaseConfig,
+  onCameraActiveChange,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -74,7 +72,8 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
     }
     setIsCameraActive(false);
     setTorchOn(false);
-  }, []);
+    onCameraActiveChange?.(false);
+  }, [onCameraActiveChange]);
 
   // Apply autofocus to hardware video track
   const applyAutofocusConstraints = useCallback(async (track: MediaStreamTrack) => {
@@ -240,6 +239,7 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
 
       setIsCameraActive(true);
       setCameraError(null);
+      onCameraActiveChange?.(true);
     } catch (err: unknown) {
       console.warn('Camera start error:', err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -365,7 +365,7 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
         if (code && code.data) {
           triggerScanFound(code.data, 'upload');
         } else {
-          alert('ไม่พบ QR Code ในรูปภาพที่เลือก กรุณาลองรูปใหม่อีกครั้ง');
+          setCameraError('ไม่พบ QR Code ในรูปภาพที่เลือก กรุณาลองรูปใหม่อีกครั้ง');
         }
       };
       img.src = event.target?.result as string;
@@ -376,7 +376,7 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
 
   return (
     <div className="camera-half">
-      {/* Dynamic Island & Supabase Cloud Status */}
+      {/* Dynamic Island */}
       <div className="flex flex-col items-center gap-1.5 z-20 pointer-events-auto">
         <div className="dynamic-island">
           <span className="di-dot"></span>
@@ -384,30 +384,6 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
             {activeScan ? `✓ ${activeScan.name} (${activeScan.grade})` : `QR SCAN • ${totalScans} คน`}
           </span>
         </div>
-
-        {onOpenSupabaseConfig && (
-          <button
-            type="button"
-            onClick={onOpenSupabaseConfig}
-            className={`px-3 py-1 rounded-full text-[11px] font-medium flex items-center gap-1.5 backdrop-blur-md transition-all shadow-md active:scale-95 ${
-              isSupabaseReady
-                ? 'bg-emerald-950/85 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-900/90'
-                : 'bg-amber-950/85 text-amber-300 border border-amber-500/50 hover:bg-amber-900/90 animate-pulse'
-            }`}
-            title={isSupabaseReady ? 'Supabase เชื่อมต่อพร้อมบันทึกอัตโนมัติ' : 'คลิกเพื่อตั้งค่า Supabase'}
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                isSupabaseReady ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
-              }`}
-            />
-            <span>
-              {isSupabaseReady
-                ? 'Supabase Cloud: ออนไลน์ Real-time 100%'
-                : 'Supabase: ยังไม่เชื่อมต่อ (แตะเพื่อเชื่อมต่อด่วน)'}
-            </span>
-          </button>
-        )}
       </div>
 
       <div
