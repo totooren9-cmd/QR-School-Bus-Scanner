@@ -5,6 +5,7 @@ import { playSuccessChime, triggerVibration } from '../utils/audio';
 
 interface CameraHalfProps {
   onScanSuccess: (studentData: { studentCode?: string; rawText: string; source: 'camera' | 'upload' | 'simulated' }) => void;
+  checkDuplicateBeforeScan?: (rawText: string) => { blocked: boolean; remainSec: number; label?: string };
   onSimulateScan: () => void;
   onOpenTestScanModal?: () => void;
   activeScan: ScanRecord | null;
@@ -18,8 +19,13 @@ interface FocusRing {
   y: number;
 }
 
+const CAMERA_BRIEF_COOLDOWN_MS = 2500;
+const JUST_SCANNED_FLASH_MS = 1500;
+const DUPLICATE_QR_LOCK_MS = 10000;
+
 export const CameraHalf: React.FC<CameraHalfProps> = ({
   onScanSuccess,
+  checkDuplicateBeforeScan,
   onSimulateScan,
   onOpenTestScanModal,
   activeScan,
@@ -37,6 +43,7 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isScanningCooldown, setIsScanningCooldown] = useState<boolean>(false);
   const [isJustScanned, setIsJustScanned] = useState<boolean>(false);
+  const [duplicateHint, setDuplicateHint] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [focusRing, setFocusRing] = useState<FocusRing | null>(null);
 
@@ -44,6 +51,43 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
   const animationFrameId = useRef<number | null>(null);
   const barcodeDetectorRef = useRef<any>(null);
   const frameCountRef = useRef<number>(0);
+  const isCooldownRef = useRef<boolean>(false);
+  const isDetectingRef = useRef<boolean>(false);
+  const isCameraActiveRef = useRef<boolean>(false);
+  const recentRawScansRef = useRef<Map<string, number>>(new Map());
+  const lastDuplicateNoticeRef = useRef<number>(0);
+  const justScannedTimerRef = useRef<number | null>(null);
+  const cooldownTimerRef = useRef<number | null>(null);
+  const duplicateHintTimerRef = useRef<number | null>(null);
+  const onScanSuccessRef = useRef(onScanSuccess);
+  const checkDuplicateRef = useRef(checkDuplicateBeforeScan);
+
+  useEffect(() => {
+    onScanSuccessRef.current = onScanSuccess;
+  }, [onScanSuccess]);
+
+  useEffect(() => {
+    checkDuplicateRef.current = checkDuplicateBeforeScan;
+  }, [checkDuplicateBeforeScan]);
+
+  useEffect(() => {
+    isCameraActiveRef.current = isCameraActive;
+  }, [isCameraActive]);
+
+  const clearScanTimers = useCallback(() => {
+    if (justScannedTimerRef.current !== null) {
+      window.clearTimeout(justScannedTimerRef.current);
+      justScannedTimerRef.current = null;
+    }
+    if (cooldownTimerRef.current !== null) {
+      window.clearTimeout(cooldownTimerRef.current);
+      cooldownTimerRef.current = null;
+    }
+    if (duplicateHintTimerRef.current !== null) {
+      window.clearTimeout(duplicateHintTimerRef.current);
+      duplicateHintTimerRef.current = null;
+    }
+  }, []);
 
   // Initialize native BarcodeDetector if available in browser
   useEffect(() => {
@@ -59,6 +103,13 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
 
   // Stop camera tracks
   const stopScanner = useCallback(() => {
+    clearScanTimers();
+    isCameraActiveRef.current = false;
+    isCooldownRef.current = false;
+    isDetectingRef.current = false;
+    setIsScanningCooldown(false);
+    setIsJustScanned(false);
+    setDuplicateHint(null);
     if (animationFrameId.current) {
       cancelAnimationFrame(animationFrameId.current);
       animationFrameId.current = null;
@@ -73,7 +124,7 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
     setIsCameraActive(false);
     setTorchOn(false);
     onCameraActiveChange?.(false);
-  }, [onCameraActiveChange]);
+  }, [clearScanTimers, onCameraActiveChange]);
 
   // Apply autofocus to hardware video track
   const applyAutofocusConstraints = useCallback(async (track: MediaStreamTrack) => {
@@ -100,106 +151,167 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
     }
   }, []);
 
-  // Trigger scan success with instant chime and visual feedback
+  // Trigger scan success with brief delay cooldown & 10-second duplicate QR lock
   const triggerScanFound = useCallback(
     (rawText: string, source: 'camera' | 'upload' | 'simulated' = 'camera') => {
+      if (source === 'camera' && isCooldownRef.current) {
+        return;
+      }
+
+      const normalizedKey = rawText.trim();
+      const now = Date.now();
+
+      // Prune expired entries older than 10 seconds
+      for (const [key, ts] of recentRawScansRef.current.entries()) {
+        if (now - ts >= DUPLICATE_QR_LOCK_MS) {
+          recentRawScansRef.current.delete(key);
+        }
+      }
+
+      const lastScannedAt = recentRawScansRef.current.get(normalizedKey);
+      const localBlocked = Boolean(lastScannedAt && now - lastScannedAt < DUPLICATE_QR_LOCK_MS);
+      const localRemainSec = lastScannedAt
+        ? Math.max(1, Math.ceil((DUPLICATE_QR_LOCK_MS - (now - lastScannedAt)) / 1000))
+        : 0;
+
+      const appCheck = checkDuplicateRef.current?.(rawText);
+      const isBlocked = localBlocked || Boolean(appCheck?.blocked);
+      const remainSec = Math.max(localRemainSec, appCheck?.remainSec || 0, 1);
+
+      if (isBlocked) {
+        if (source === 'camera') {
+          if (now - lastDuplicateNoticeRef.current >= 850) {
+            lastDuplicateNoticeRef.current = now;
+            const targetText = appCheck?.label ? ` ${appCheck.label}` : 'คิวอาร์โค้ดนี้';
+            setDuplicateHint(`⏳ เพิ่งสแกน${targetText}แล้ว (รออีก ${remainSec} วินาที)`);
+            if (duplicateHintTimerRef.current !== null) {
+              window.clearTimeout(duplicateHintTimerRef.current);
+            }
+            duplicateHintTimerRef.current = window.setTimeout(() => {
+              setDuplicateHint(null);
+            }, 1800);
+          }
+          return;
+        }
+        // For gallery upload, forward to App duplicate guard without chime/vibration so user gets toast
+        onScanSuccessRef.current({
+          rawText,
+          source,
+        });
+        return;
+      }
+
+      // Synchronously lock BEFORE chime/emit so no parallel frame can fire
+      recentRawScansRef.current.set(normalizedKey, now);
+      clearScanTimers();
+      isCooldownRef.current = true;
       setIsScanningCooldown(true);
       setIsJustScanned(true);
+      setDuplicateHint(null);
       playSuccessChime();
       triggerVibration();
 
-      onScanSuccess({
+      onScanSuccessRef.current({
         rawText,
         source,
       });
 
-      // Turn visual reticle green for 1.2s, cooldown for 1.8s
-      setTimeout(() => {
+      justScannedTimerRef.current = window.setTimeout(() => {
         setIsJustScanned(false);
-      }, 1200);
+      }, JUST_SCANNED_FLASH_MS);
 
-      setTimeout(() => {
+      cooldownTimerRef.current = window.setTimeout(() => {
+        isCooldownRef.current = false;
         setIsScanningCooldown(false);
-      }, 1800);
+      }, CAMERA_BRIEF_COOLDOWN_MS);
     },
-    [onScanSuccess]
+    [clearScanTimers]
   );
 
   // Dual engine scan loop (Hardware BarcodeDetector + Center Crop jsQR)
   const scanLoop = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || !isCameraActive) return;
+    if (!isCameraActiveRef.current || !videoRef.current || !canvasRef.current) return;
 
     const video = videoRef.current;
-    if (video.readyState === video.HAVE_ENOUGH_DATA && !isScanningCooldown) {
-      frameCountRef.current++;
-      let detectedText: string | null = null;
+    if (
+      video.readyState === video.HAVE_ENOUGH_DATA &&
+      !isCooldownRef.current &&
+      !isDetectingRef.current
+    ) {
+      isDetectingRef.current = true;
+      try {
+        frameCountRef.current++;
+        let detectedText: string | null = null;
 
-      // 1. Hardware BarcodeDetector (instant hardware ISP decode)
-      if (barcodeDetectorRef.current) {
-        try {
-          const barcodes = await barcodeDetectorRef.current.detect(video);
-          if (barcodes && barcodes.length > 0 && barcodes[0]?.rawValue) {
-            detectedText = barcodes[0].rawValue;
+        // 1. Hardware BarcodeDetector (instant hardware ISP decode)
+        if (barcodeDetectorRef.current) {
+          try {
+            const barcodes = await barcodeDetectorRef.current.detect(video);
+            if (barcodes && barcodes.length > 0 && barcodes[0]?.rawValue) {
+              detectedText = barcodes[0].rawValue;
+            }
+          } catch {
+            // Fallback to jsQR
           }
-        } catch {
-          // Fallback to jsQR
         }
-      }
 
-      // 2. High-speed Center Viewport Crop with jsQR
-      if (!detectedText && canvasRef.current) {
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        // 2. High-speed Center Viewport Crop with jsQR
+        if (!detectedText && canvasRef.current && isCameraActiveRef.current && !isCooldownRef.current) {
+          const canvas = canvasRef.current;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-        if (ctx) {
-          const vw = video.videoWidth || 640;
-          const vh = video.videoHeight || 480;
+          if (ctx) {
+            const vw = video.videoWidth || 640;
+            const vh = video.videoHeight || 480;
 
-          // Crop strictly to the center 65% of the frame (where the viewfinder aligns "ตรง ๆ")
-          const cropSize = Math.min(vw, vh) * 0.65;
-          const cropX = (vw - cropSize) / 2;
-          const cropY = (vh - cropSize) / 2;
+            // Crop strictly to the center 65% of the frame (where the viewfinder aligns "ตรง ๆ")
+            const cropSize = Math.min(vw, vh) * 0.65;
+            const cropX = (vw - cropSize) / 2;
+            const cropY = (vh - cropSize) / 2;
 
-          const targetSize = 420;
-          canvas.width = targetSize;
-          canvas.height = targetSize;
+            const targetSize = 420;
+            canvas.width = targetSize;
+            canvas.height = targetSize;
 
-          ctx.drawImage(video, cropX, cropY, cropSize, cropSize, 0, 0, targetSize, targetSize);
+            ctx.drawImage(video, cropX, cropY, cropSize, cropSize, 0, 0, targetSize, targetSize);
 
-          const imageData = ctx.getImageData(0, 0, targetSize, targetSize);
-          const code = jsQR(imageData.data, imageData.width, imageData.height, {
-            inversionAttempts: 'attemptBoth',
-          });
-
-          if (code && code.data) {
-            detectedText = code.data;
-          } else if (frameCountRef.current % 4 === 0) {
-            // Check full frame every 4th frame in case QR is slightly off-center
-            const fullTargetW = 480;
-            const fullTargetH = Math.round((vh / vw) * 480);
-            canvas.width = fullTargetW;
-            canvas.height = fullTargetH;
-            ctx.drawImage(video, 0, 0, fullTargetW, fullTargetH);
-            const fullImgData = ctx.getImageData(0, 0, fullTargetW, fullTargetH);
-            const fallbackCode = jsQR(fullImgData.data, fullImgData.width, fullImgData.height, {
-              inversionAttempts: 'dontInvert',
+            const imageData = ctx.getImageData(0, 0, targetSize, targetSize);
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: 'attemptBoth',
             });
-            if (fallbackCode && fallbackCode.data) {
-              detectedText = fallbackCode.data;
+
+            if (code && code.data) {
+              detectedText = code.data;
+            } else if (frameCountRef.current % 4 === 0) {
+              // Check full frame every 4th frame in case QR is slightly off-center
+              const fullTargetW = 480;
+              const fullTargetH = Math.round((vh / vw) * 480);
+              canvas.width = fullTargetW;
+              canvas.height = fullTargetH;
+              ctx.drawImage(video, 0, 0, fullTargetW, fullTargetH);
+              const fullImgData = ctx.getImageData(0, 0, fullTargetW, fullTargetH);
+              const fallbackCode = jsQR(fullImgData.data, fullImgData.width, fullImgData.height, {
+                inversionAttempts: 'dontInvert',
+              });
+              if (fallbackCode && fallbackCode.data) {
+                detectedText = fallbackCode.data;
+              }
             }
           }
         }
-      }
 
-      if (detectedText && !isScanningCooldown) {
-        triggerScanFound(detectedText, 'camera');
+        if (detectedText && !isCooldownRef.current && isCameraActiveRef.current) {
+          triggerScanFound(detectedText, 'camera');
+        }
+      } finally {
+        isDetectingRef.current = false;
       }
     }
 
-    if (isCameraActive) {
+    if (isCameraActiveRef.current) {
       animationFrameId.current = requestAnimationFrame(scanLoop);
     }
-  }, [isCameraActive, isScanningCooldown, triggerScanFound]);
+  }, [triggerScanFound]);
 
   // Start real camera with optimal resolution and continuous focus
   const startScanner = async () => {
@@ -292,12 +404,17 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
   };
 
   useEffect(() => {
+    isCameraActiveRef.current = isCameraActive;
     if (isCameraActive) {
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+      }
       animationFrameId.current = requestAnimationFrame(scanLoop);
     }
     return () => {
       if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
       }
     };
   }, [isCameraActive, scanLoop]);
@@ -437,10 +554,24 @@ export const CameraHalf: React.FC<CameraHalfProps> = ({
             </div>
 
             <div className="qr-hint flex items-center gap-1.5" id="qrHint">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  isJustScanned
+                    ? 'bg-emerald-400'
+                    : duplicateHint
+                    ? 'bg-amber-400 animate-pulse'
+                    : isScanningCooldown
+                    ? 'bg-sky-400 animate-pulse'
+                    : 'bg-amber-400 animate-ping'
+                }`}
+              ></span>
               <span>
                 {isJustScanned
-                  ? '✓ ล็อกเป้าสำเร็จ!'
+                  ? '✓ ล็อกเป้าสำเร็จ! (หน่วงเวลา 2.5 วิ)'
+                  : duplicateHint
+                  ? duplicateHint
+                  : isScanningCooldown
+                  ? '⏳ หน่วงเวลาสแกนสักครู่...'
                   : 'จัด QR Code ให้อยู่ตรงกลางกรอบเล็ง (แตะจอเพื่อปรับโฟกัส)'}
               </span>
             </div>

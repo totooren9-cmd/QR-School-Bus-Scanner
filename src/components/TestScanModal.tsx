@@ -79,9 +79,18 @@ export const TestScanModal: React.FC<TestScanModalProps> = ({
   const handleRunBatch = async () => {
     if (students.length === 0 || isBatchRunning) return;
     setIsBatchRunning(true);
-    setBatchProgress({ current: 0, total: Math.min(students.length, 20) });
+    const seen = new Set<string>();
+    const targetList: Student[] = [];
+    for (const s of students) {
+      const key = (s.studentCode || s.id || '').trim().toUpperCase();
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        targetList.push(s);
+        if (targetList.length >= 20) break;
+      }
+    }
+    setBatchProgress({ current: 0, total: targetList.length });
 
-    const targetList = students.slice(0, 20); // test up to 20 students per batch
     for (let i = 0; i < targetList.length; i++) {
       const student = targetList[i];
       const scanType = selectedScanType === 'auto' ? undefined : selectedScanType;

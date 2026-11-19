@@ -211,6 +211,10 @@ function buildScopedCollectionQuery(collectionName: string): Query<DocumentData>
   if (isBootstrappedAdminEmail(user.email)) {
     return colRef;
   }
+  if (collectionName === 'scans') {
+    // Allow all verified devices/operators to sync live boarding/alighting scans in real time
+    return query(colRef, where('scan_type', 'in', ['ขึ้นรถ', 'ลงรถ']));
+  }
   return query(colRef, where('ownerId', '==', user.uid));
 }
 
@@ -912,11 +916,37 @@ export function savePendingScan(scan: ScanRecord): void {
 export function removePendingScan(scanId: string): void {
   if (typeof window === 'undefined') return;
   try {
-    const list = getPendingScans().filter((s) => (s.scanId || s.id) !== scanId);
+    const clean = sanitizeFirestoreId(scanId, 'SCN');
+    const list = getPendingScans().filter(
+      (s) => (s.scanId || s.id) !== scanId && s.id !== scanId && sanitizeFirestoreId(s.scanId || s.id, 'SCN') !== clean
+    );
     localStorage.setItem(STORAGE_KEY_PENDING_SCANS, JSON.stringify(list));
   } catch (e) {
     console.warn('Failed to remove pending scan:', e);
   }
+}
+
+export function clearPendingScans(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(STORAGE_KEY_PENDING_SCANS);
+  } catch (e) {
+    console.warn('Failed to clear pending scans:', e);
+  }
+}
+
+export function mergeScansWithPending(remoteScans: ScanRecord[]): ScanRecord[] {
+  const pending = getPendingScans();
+  if (pending.length === 0) return remoteScans;
+  const map = new Map<string, ScanRecord>();
+  remoteScans.forEach((s) => map.set(s.scanId || s.id, s));
+  pending.forEach((s) => {
+    const key = s.scanId || s.id;
+    if (!map.has(key)) {
+      map.set(key, s);
+    }
+  });
+  return Array.from(map.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 }
 
 export async function syncPendingScans(): Promise<{
@@ -971,7 +1001,12 @@ export async function fetchScansFromFirebase(): Promise<{
 
 export async function insertScanToFirebase(
   scan: ScanRecord,
-  options?: { skipQueue?: boolean; student?: Student }
+  options?: {
+    skipQueue?: boolean;
+    student?: Student;
+    isNewScan?: boolean;
+    skipStudentUpsert?: boolean;
+  }
 ): Promise<{ success: boolean; error?: string; isOfflineQueued?: boolean }> {
   const user = auth.currentUser;
   if (!user || !user.emailVerified) {
@@ -989,45 +1024,55 @@ export async function insertScanToFirebase(
   const path = `scans/${scanId}`;
 
   try {
-    // Ensure student record exists/updated in Firestore
-    const studentId = sanitizeFirestoreId(scan.studentCode || scan.studentId || '', 'STD');
-    if (options?.student) {
-      await upsertStudentToFirebase(options.student).catch(() => {});
-    } else if (studentId) {
-      await upsertStudentToFirebase({
-        id: studentId,
-        studentCode: studentId,
-        name: scan.name || 'พนักงาน',
-        grade: scan.grade || 'แผนกทั่วไป',
-        dorm: scan.dorm || 'หอ A',
-        carID: scan.carID || scan.busNumber || 'CAR01',
-        busNumber: scan.busNumber || scan.carID || 'CAR01',
-        dormOrStop: scan.locationName || 'จุดรับส่ง',
-        parentPhone: '081-000-0000',
-      }).catch(() => {});
-    }
-
-    const carId = clampString(scan.carID || scan.busNumber || 'CAR01', 128);
-    if (carId) {
-      await ensureCarExistsInFirebase(carId, scan.plate || '1กข 1234');
-    }
-
     const docRef = doc(db, 'scans', scanId);
-    const existingSnap = await getDoc(docRef);
 
-    if (existingSnap.exists()) {
-      const ownerId = String(existingSnap.data().ownerId || user.uid);
-      const payload = buildScanPayload({ ...scan, id: scanId, scanId }, ownerId, false);
-      delete payload.ownerId;
-      delete payload.scan_id;
-      await updateDoc(docRef, payload);
-    } else {
+    // Write the scan document immediately without waiting for secondary student/car reads
+    if (options?.isNewScan) {
       const payload = buildScanPayload({ ...scan, id: scanId, scanId }, user.uid, true);
       await setDoc(docRef, payload);
+    } else {
+      const existingSnap = await getDoc(docRef);
+      if (existingSnap.exists()) {
+        const ownerId = String(existingSnap.data().ownerId || user.uid);
+        const payload = buildScanPayload({ ...scan, id: scanId, scanId }, ownerId, false);
+        delete payload.ownerId;
+        delete payload.scan_id;
+        await updateDoc(docRef, payload);
+      } else {
+        const payload = buildScanPayload({ ...scan, id: scanId, scanId }, user.uid, true);
+        await setDoc(docRef, payload);
+      }
     }
 
     removePendingScan(scan.scanId || scan.id);
     removePendingScan(scanId);
+
+    // Sync unknown student / missing car in background so the scan save is instantaneous
+    if (!options?.skipStudentUpsert) {
+      const studentId = sanitizeFirestoreId(scan.studentCode || scan.studentId || '', 'STD');
+      const carId = clampString(scan.carID || scan.busNumber || 'CAR01', 128);
+      void Promise.resolve().then(async () => {
+        if (options?.student) {
+          await upsertStudentToFirebase(options.student).catch(() => {});
+        } else if (studentId) {
+          await upsertStudentToFirebase({
+            id: studentId,
+            studentCode: studentId,
+            name: scan.name || 'พนักงาน',
+            grade: scan.grade || 'แผนกทั่วไป',
+            dorm: scan.dorm || 'หอ A',
+            carID: carId || 'CAR01',
+            busNumber: carId || 'CAR01',
+            dormOrStop: scan.locationName || 'จุดรับส่ง',
+            parentPhone: '081-000-0000',
+          }).catch(() => {});
+        }
+        if (carId) {
+          await ensureCarExistsInFirebase(carId, scan.plate || '1กข 1234').catch(() => {});
+        }
+      });
+    }
+
     return { success: true };
   } catch (err) {
     if (!options?.skipQueue) {
@@ -1040,6 +1085,7 @@ export async function insertScanToFirebase(
 export async function deleteScanFromFirebase(
   scanId: string
 ): Promise<{ success: boolean; error?: string }> {
+  removePendingScan(scanId);
   if (!auth.currentUser) {
     return { success: false, error: 'กรุณาเข้าสู่ระบบ Google ก่อนลบรายการสแกน' };
   }
@@ -1058,6 +1104,7 @@ export async function clearAllScansInFirebase(): Promise<{
   error?: string;
   deletedCount?: number;
 }> {
+  clearPendingScans();
   if (!auth.currentUser) {
     return { success: false, error: 'กรุณาเข้าสู่ระบบ Google ก่อนล้างประวัติสแกน' };
   }
@@ -1207,7 +1254,7 @@ export function subscribeToFirebaseRealtime(handlers: {
           rows.sort((a, b) => a.id.localeCompare(b.id));
           handlers.onStudents?.(rows);
         },
-        (err) => handleFirestoreError(err, OperationType.LIST, 'students')
+        (err) => console.warn('Realtime students snapshot warning:', err)
       )
     );
   }
@@ -1222,7 +1269,7 @@ export function subscribeToFirebaseRealtime(handlers: {
           rows.sort((a, b) => a.carID.localeCompare(b.carID));
           handlers.onCars?.(rows);
         },
-        (err) => handleFirestoreError(err, OperationType.LIST, 'cars')
+        (err) => console.warn('Realtime cars snapshot warning:', err)
       )
     );
   }
@@ -1237,7 +1284,7 @@ export function subscribeToFirebaseRealtime(handlers: {
           rows.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
           handlers.onScans?.(rows);
         },
-        (err) => handleFirestoreError(err, OperationType.LIST, 'scans')
+        (err) => console.warn('Realtime scans snapshot warning:', err)
       )
     );
   }
@@ -1252,7 +1299,7 @@ export function subscribeToFirebaseRealtime(handlers: {
           rows.sort((a, b) => a.user_id.localeCompare(b.user_id));
           handlers.onUsers?.(rows);
         },
-        (err) => handleFirestoreError(err, OperationType.LIST, 'users')
+        (err) => console.warn('Realtime users snapshot warning:', err)
       )
     );
   }
@@ -1267,7 +1314,7 @@ export function subscribeToFirebaseRealtime(handlers: {
           rows.sort((a, b) => a.key.localeCompare(b.key));
           handlers.onSettings?.(rows);
         },
-        (err) => handleFirestoreError(err, OperationType.LIST, 'settings')
+        (err) => console.warn('Realtime settings snapshot warning:', err)
       )
     );
   }
@@ -1529,7 +1576,7 @@ export async function ensureDatabaseSeededIfEmpty(
   onProgress?: (progress: MigrationProgress) => void
 ): Promise<{ seeded: boolean; studentsCount: number }> {
   const user = auth.currentUser;
-  if (!user || !user.emailVerified) {
+  if (!user || !user.emailVerified || !isBootstrappedAdminEmail(user.email)) {
     return { seeded: false, studentsCount: 0 };
   }
 

@@ -260,8 +260,8 @@ service cloud.firestore {
     }
 
     match /scans/{scanId} {
-      allow get: if isValidId(scanId) && (isAdmin() || isOwner());
-      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && existing().ownerId == request.auth.uid);
+      allow get: if isValidId(scanId) && (isAdmin() || isOwner() || (isVerifiedUser() && existing().scan_type in ['ขึ้นรถ', 'ลงรถ']));
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && existing().scan_type in ['ขึ้นรถ', 'ลงรถ']);
 
       allow create: if isVerifiedUser() &&
         isValidId(scanId) &&

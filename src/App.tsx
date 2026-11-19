@@ -11,7 +11,7 @@ import { FirebaseAuthModal } from './components/FirebaseAuthModal';
 import { TestScanModal } from './components/TestScanModal';
 import { formatThaiDateTime } from './data/mockData';
 import { speakFastSuccess, triggerVibration } from './utils/audio';
-import { getCurrentCoordinates } from './utils/geo';
+import { getInstantCoordinates, warmUpCoordinates } from './utils/geo';
 import { Student, ScanRecord, Car, AdminTab, AppUser, SystemSetting } from './types';
 import {
   DEFAULT_APPS_SCRIPT_URL,
@@ -45,6 +45,10 @@ import {
   importStudentsBatchToFirebase,
   subscribeToFirebaseRealtime,
   syncPendingScans,
+  getPendingScans,
+  removePendingScan,
+  clearPendingScans,
+  mergeScansWithPending,
   getPendingCars,
   savePendingCar,
   removePendingCar,
@@ -78,6 +82,135 @@ function deduplicateAndFixScanIds(records: ScanRecord[]): ScanRecord[] {
   });
 }
 
+const DUPLICATE_SCAN_GUARD_MS = 10000;
+const STORAGE_KEY_RECENT_SCAN_LOCKS = 'qr_bus_recent_scan_locks_v1';
+
+function hashQrTextDeterministic(input: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36).toUpperCase().slice(0, 6);
+}
+
+function readPersistedScanLocks(now: number): Map<string, number> {
+  const map = new Map<string, number>();
+  if (typeof window === 'undefined') return map;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_RECENT_SCAN_LOCKS);
+    if (!raw) return map;
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    for (const [k, ts] of Object.entries(parsed)) {
+      if (typeof ts === 'number' && now - ts < DUPLICATE_SCAN_GUARD_MS) {
+        map.set(k, ts);
+      }
+    }
+  } catch {
+    // Ignore storage read error
+  }
+  return map;
+}
+
+function writePersistedScanLocks(map: Map<string, number>, now: number): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const obj: Record<string, number> = {};
+    for (const [k, ts] of map.entries()) {
+      if (now - ts < DUPLICATE_SCAN_GUARD_MS) {
+        obj[k] = ts;
+      }
+    }
+    localStorage.setItem(STORAGE_KEY_RECENT_SCAN_LOCKS, JSON.stringify(obj));
+  } catch {
+    // Ignore storage write error
+  }
+}
+
+function resolveStudentFromQrText(
+  rawText: string,
+  studentList: Student[]
+): { student: Student; studentKey: string; rawKey: string } {
+  let rawClean = rawText.trim();
+
+  if (rawClean.includes('text=')) {
+    try {
+      const url = new URL(rawClean);
+      rawClean = url.searchParams.get('text') || rawClean;
+    } catch {
+      const m = rawClean.match(/text=([^&]+)/);
+      if (m) rawClean = decodeURIComponent(m[1]);
+    }
+  }
+
+  let matchedStudent: Student | undefined;
+
+  try {
+    const parsed = JSON.parse(rawClean);
+    if (parsed && (parsed.code || parsed.studentCode || parsed.studentID)) {
+      const targetCode = String(parsed.code || parsed.studentCode || parsed.studentID)
+        .trim()
+        .toUpperCase();
+      matchedStudent = studentList.find(
+        (s) => s.studentCode.trim().toUpperCase() === targetCode || s.id.trim().toUpperCase() === targetCode
+      );
+      if (!matchedStudent) {
+        matchedStudent = {
+          id: targetCode,
+          studentCode: targetCode,
+          name: parsed.name || 'พนักงานทั่วไป',
+          grade: parsed.grade || 'แผนกทั่วไป',
+          className: parsed.classroom || parsed.grade || 'แผนกทั่วไป',
+          dorm: parsed.dorm || 'หอ A',
+          carID: parsed.carID || 'CAR01',
+          busNumber: parsed.bus || parsed.carID || 'CAR01',
+          dormOrStop: parsed.dorm || 'จุดรับส่งพนักงาน',
+          parentPhone: parsed.parentPhone || '081-000-0000',
+          avatarColor: 'bg-indigo-500',
+        };
+      }
+    }
+  } catch {
+    const textUpper = rawClean.toUpperCase();
+    matchedStudent = studentList.find(
+      (s) =>
+        s.studentCode.trim().toUpperCase() === textUpper ||
+        s.id.trim().toUpperCase() === textUpper ||
+        s.name.includes(rawClean) ||
+        (s.nickname && s.nickname.toLowerCase() === rawClean.toLowerCase())
+    );
+
+    if (!matchedStudent && /^\d+$/.test(rawClean)) {
+      const padded = 'STD' + String(parseInt(rawClean, 10)).padStart(4, '0');
+      matchedStudent = studentList.find((s) => s.studentCode.toUpperCase() === padded);
+    }
+  }
+
+  if (!matchedStudent) {
+    const alnum = rawClean.replace(/[^A-Za-z0-9]/g, '').slice(0, 7).toUpperCase();
+    const fallbackCode = alnum || `STD_${hashQrTextDeterministic(rawClean)}`;
+    matchedStudent = {
+      id: fallbackCode,
+      studentCode: fallbackCode,
+      name:
+        rawClean.length > 2 && !rawClean.startsWith('http')
+          ? rawClean
+          : `พนักงานรหัส ${fallbackCode}`,
+      grade: 'แผนกทั่วไป',
+      dorm: 'หอ A',
+      carID: 'CAR01',
+      busNumber: 'CAR01',
+      dormOrStop: 'จุดรับส่งพนักงาน',
+      parentPhone: '089-111-2233',
+      avatarColor: 'bg-emerald-500',
+    };
+  }
+
+  const studentKey = (matchedStudent.studentCode || matchedStudent.id || '').trim().toUpperCase();
+  const rawKey = `RAW:${rawClean.toUpperCase()}`;
+  return { student: matchedStudent, studentKey, rawKey };
+}
+
 // Auto-purge any legacy Supabase or mock data keys from localStorage (100% Firebase Firestore)
 if (typeof window !== 'undefined') {
   try {
@@ -106,7 +239,7 @@ export default function App() {
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [students, setStudents] = useState<Student[]>(() => getPendingStudents());
   const [cars, setCars] = useState<Car[]>(() => getPendingCars());
-  const [scans, setScans] = useState<ScanRecord[]>([]);
+  const [scans, setScans] = useState<ScanRecord[]>(() => getPendingScans());
   const [users, setUsers] = useState<AppUser[]>([]);
   const [settings, setSettings] = useState<SystemSetting[]>([]);
 
@@ -122,6 +255,19 @@ export default function App() {
   const [isSyncingFirebase, setIsSyncingFirebase] = useState<boolean>(false);
 
   const hasAutoSeededRef = useRef<boolean>(false);
+  const recentStudentScanRef = useRef<Map<string, number>>(readPersistedScanLocks(Date.now()));
+  const scansRef = useRef<ScanRecord[]>(scans);
+  const studentsRef = useRef<Student[]>(students);
+  const seenScanIdsRef = useRef<Set<string>>(new Set());
+  const hasLoadedInitialScansRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    scansRef.current = scans;
+  }, [scans]);
+
+  useEffect(() => {
+    studentsRef.current = students;
+  }, [students]);
 
   // Google Sheets & Apps Script State
   const [appsScriptUrl, setAppsScriptUrl] = useState<string>(() => {
@@ -188,9 +334,10 @@ export default function App() {
     if (title) setConnectedSheetTitle(title);
   };
 
-  // Run mandatory Firestore connection check on mount
+  // Run mandatory Firestore connection check and warm up GPS cache in background on mount
   useEffect(() => {
     testConnection();
+    warmUpCoordinates();
   }, []);
 
   // ==========================================
@@ -219,7 +366,7 @@ export default function App() {
           summary.push(`รถ ${carRes.data.length} คัน`);
         }
         if (scanRes.success) {
-          const uniqueScans = deduplicateAndFixScanIds(scanRes.data);
+          const uniqueScans = deduplicateAndFixScanIds(mergeScansWithPending(scanRes.data));
           setScans(uniqueScans);
           summary.push(`สแกน ${uniqueScans.length} รายการ`);
         }
@@ -288,14 +435,43 @@ export default function App() {
         unsubscribeRealtime = subscribeToFirebaseRealtime({
           onStudents: (rows) => setStudents(mergeStudentsWithPending(rows)),
           onCars: (rows) => setCars(mergeCarsWithPending(rows)),
-          onScans: (rows) => setScans(deduplicateAndFixScanIds(rows)),
+          onScans: (rows) => {
+            const merged = deduplicateAndFixScanIds(mergeScansWithPending(rows));
+            if (hasLoadedInitialScansRef.current) {
+              const nowTs = Date.now();
+              const newRemoteScan = merged.find((s) => {
+                const key = s.scanId || s.id;
+                return (
+                  key &&
+                  !seenScanIdsRef.current.has(key) &&
+                  typeof s.timestamp === 'number' &&
+                  nowTs - s.timestamp < 20000
+                );
+              });
+              if (newRemoteScan) {
+                showToast(
+                  `📡 ซิงค์รายการสแกนเรียลไทม์: ${newRemoteScan.name} (${newRemoteScan.scanType || 'ขึ้นรถ'})`
+                );
+              }
+            }
+            const nextSeen = new Set<string>();
+            merged.forEach((s) => {
+              const key = s.scanId || s.id;
+              if (key) nextSeen.add(key);
+            });
+            seenScanIdsRef.current = nextSeen;
+            hasLoadedInitialScansRef.current = true;
+            setScans(merged);
+          },
           onUsers: (rows) => setUsers(rows),
           onSettings: (rows) => setSettings(rows),
         });
       } else {
+        hasLoadedInitialScansRef.current = false;
+        seenScanIdsRef.current = new Set();
         setStudents(getPendingStudents());
         setCars(getPendingCars());
-        setScans([]);
+        setScans(getPendingScans());
         setUsers([]);
         setSettings([]);
       }
@@ -379,14 +555,89 @@ export default function App() {
   );
 
   // ==========================================
-  // SCAN ACTION (INSERT SCAN TO FIREBASE 100%)
+  // SCAN ACTION (10s ANTI-DUPLICATE + IMMEDIATE FIREBASE SAVE)
   // ==========================================
+  const checkDuplicateForKeys = useCallback((keys: string[]): { blocked: boolean; remainSec: number } => {
+    const now = Date.now();
+    const persisted = readPersistedScanLocks(now);
+    for (const [k, ts] of persisted.entries()) {
+      const existingTs = recentStudentScanRef.current.get(k) || 0;
+      if (ts > existingTs) {
+        recentStudentScanRef.current.set(k, ts);
+      }
+    }
+    for (const [k, ts] of recentStudentScanRef.current.entries()) {
+      if (now - ts >= DUPLICATE_SCAN_GUARD_MS) {
+        recentStudentScanRef.current.delete(k);
+      }
+    }
+
+    let latestTs = 0;
+    const normalizedKeys = keys.map((k) => k.trim().toUpperCase()).filter(Boolean);
+
+    for (const key of normalizedKeys) {
+      const refTs = recentStudentScanRef.current.get(key) || 0;
+      if (refTs > latestTs) latestTs = refTs;
+
+      if (!key.startsWith('RAW:')) {
+        const stateScan = scansRef.current.find((s) => {
+          const codeMatch = (s.studentCode || '').trim().toUpperCase() === key;
+          const idMatch = (s.studentId || '').trim().toUpperCase() === key;
+          return (codeMatch || idMatch) && typeof s.timestamp === 'number';
+        });
+        if (stateScan?.timestamp && stateScan.timestamp > latestTs) {
+          latestTs = stateScan.timestamp;
+        }
+      }
+    }
+
+    if (latestTs > 0 && now - latestTs < DUPLICATE_SCAN_GUARD_MS) {
+      const remainSec = Math.max(1, Math.ceil((DUPLICATE_SCAN_GUARD_MS - (now - latestTs)) / 1000));
+      return { blocked: true, remainSec };
+    }
+    return { blocked: false, remainSec: 0 };
+  }, []);
+
+  const checkDuplicateBeforeCameraScan = useCallback(
+    (rawText: string): { blocked: boolean; remainSec: number; label?: string } => {
+      const { student, studentKey, rawKey } = resolveStudentFromQrText(rawText, studentsRef.current);
+      const check = checkDuplicateForKeys([studentKey, rawKey]);
+      return {
+        ...check,
+        label: student.name,
+      };
+    },
+    [checkDuplicateForKeys]
+  );
+
   const registerScan = useCallback(
     async (
       student: Student,
       source: 'camera' | 'upload' | 'simulated',
-      customScanType?: 'ขึ้นรถ' | 'ลงรถ'
+      customScanType?: 'ขึ้นรถ' | 'ลงรถ',
+      rawKey?: string
     ) => {
+      const now = Date.now();
+      const studentKey = (student.studentCode || student.id || '').trim().toUpperCase();
+      const lockKeys = [studentKey, rawKey || ''].filter(Boolean);
+
+      if (lockKeys.length > 0) {
+        const dup = checkDuplicateForKeys(lockKeys);
+        if (dup.blocked) {
+          showToast(`⏳ เพิ่งสแกน ${student.name} ไปแล้ว (รออีก ${dup.remainSec} วินาที)`);
+          return;
+        }
+
+        for (const k of lockKeys) {
+          recentStudentScanRef.current.set(k.toUpperCase(), now);
+        }
+        writePersistedScanLocks(recentStudentScanRef.current, now);
+      }
+
+      const isKnownStudent = studentsRef.current.some(
+        (s) => s.studentCode === student.studentCode || s.id === student.id
+      );
+
       setStudents((prev) => {
         const existingIdx = prev.findIndex(
           (s) => s.studentCode === student.studentCode || s.id === student.id
@@ -399,12 +650,12 @@ export default function App() {
         return [student, ...prev];
       });
 
-      const geo = await getCurrentCoordinates();
+      const geo = getInstantCoordinates();
       const { dateThai, timeThai } = formatThaiDateTime();
 
       const studentCar = cars.find((c) => c.carID === student.carID || c.carID === student.busNumber);
 
-      const studentScansToday = scans.filter(
+      const studentScansToday = scansRef.current.filter(
         (s) =>
           (s.studentCode === student.studentCode || s.studentId === student.id) &&
           (s.dateThai === dateThai || !s.dateThai)
@@ -462,6 +713,7 @@ export default function App() {
           `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(student.studentCode)}`,
       };
 
+      seenScanIdsRef.current.add(newScan.scanId || newScan.id);
       setScans((prev) => [newScan, ...prev]);
       setActiveScan(newScan);
       showToast(
@@ -486,8 +738,12 @@ export default function App() {
         // Ignore if blocked
       }
 
-      // Persist scan + student to Firebase Firestore
-      insertScanToFirebase(newScan, { student })
+      // Immediately write scan document to Firebase Firestore (zero pre-delay)
+      insertScanToFirebase(newScan, {
+        student: isKnownStudent ? undefined : student,
+        isNewScan: true,
+        skipStudentUpsert: isKnownStudent,
+      })
         .then((res) => {
           if (res.success) {
             setScans((prev) =>
@@ -504,16 +760,19 @@ export default function App() {
             );
             showToast(
               isDropOff
-                ? `✓ บันทึกลง Firebase สำเร็จ: ${student.name} (ลงรถ)`
-                : `✓ บันทึกลง Firebase สำเร็จ: ${student.name} (ขึ้นรถ)`
+                ? `✓ บันทึกลง Firebase ทันที: ${student.name} (ลงรถ)`
+                : `✓ บันทึกลง Firebase ทันที: ${student.name} (ขึ้นรถ)`
             );
           } else if (res.isOfflineQueued) {
             showToast(`⏳ บันทึกลงคิวรอซิงค์ Firebase (กรุณาเข้าสู่ระบบ Google)`);
+            if (source !== 'camera') {
+              setIsFirebaseModalOpen(true);
+            }
           }
         })
         .catch((err) => {
-          console.warn('Background Firebase scan insert failed:', err);
-          showToast(`⚠️ เกิดข้อผิดพลาดในการบันทึก Firebase: ${err instanceof Error ? err.message : ''}`);
+          console.warn('Immediate Firebase scan insert failed:', err);
+          showToast(`⚠️ บันทึก Firebase ไม่สำเร็จ (เก็บในคิวรอส่งแล้ว): ${err instanceof Error ? err.message : ''}`);
         });
 
       // Auto-Sync to Google Sheets & Apps Script
@@ -539,101 +798,28 @@ export default function App() {
         setActiveScan((curr) => (curr?.id === newScan.id ? null : curr));
       }, 3500);
     },
-    [cars, scans, soundEnabled, autoSyncEnabled, appsScriptUrl, connectedSheetId, firebaseUser, showToast]
+    [cars, soundEnabled, autoSyncEnabled, appsScriptUrl, connectedSheetId, firebaseUser, checkDuplicateForKeys, showToast]
   );
 
   // Handle Real Camera / Upload QR code parsing
   const handleScanSuccess = useCallback(
     (data: { studentCode?: string; rawText: string; source: 'camera' | 'upload' | 'simulated' }) => {
-      let rawClean = data.rawText.trim();
-
-      if (rawClean.includes('text=')) {
-        try {
-          const url = new URL(rawClean);
-          rawClean = url.searchParams.get('text') || rawClean;
-        } catch {
-          const m = rawClean.match(/text=([^&]+)/);
-          if (m) rawClean = decodeURIComponent(m[1]);
-        }
-      }
-
-      let matchedStudent: Student | undefined;
-
-      try {
-        const parsed = JSON.parse(rawClean);
-        if (parsed && (parsed.code || parsed.studentCode || parsed.studentID)) {
-          const targetCode = (parsed.code || parsed.studentCode || parsed.studentID).trim().toUpperCase();
-          matchedStudent = students.find(
-            (s) => s.studentCode.trim().toUpperCase() === targetCode || s.id.trim().toUpperCase() === targetCode
-          );
-          if (!matchedStudent) {
-            matchedStudent = {
-              id: targetCode,
-              studentCode: targetCode,
-              name: parsed.name || 'พนักงานทั่วไป',
-              grade: parsed.grade || 'แผนกทั่วไป',
-              className: parsed.classroom || parsed.grade || 'แผนกทั่วไป',
-              dorm: parsed.dorm || 'หอ A',
-              carID: parsed.carID || 'CAR01',
-              busNumber: parsed.bus || parsed.carID || 'CAR01',
-              dormOrStop: parsed.dorm || 'จุดรับส่งพนักงาน',
-              parentPhone: parsed.parentPhone || '081-000-0000',
-              avatarColor: 'bg-indigo-500',
-            };
-          }
-        }
-      } catch {
-        const textUpper = rawClean.toUpperCase();
-        matchedStudent = students.find(
-          (s) =>
-            s.studentCode.trim().toUpperCase() === textUpper ||
-            s.id.trim().toUpperCase() === textUpper ||
-            s.name.includes(rawClean) ||
-            (s.nickname && s.nickname.toLowerCase() === rawClean.toLowerCase())
-        );
-
-        if (!matchedStudent && /^\d+$/.test(rawClean)) {
-          const padded = 'STD' + String(parseInt(rawClean, 10)).padStart(4, '0');
-          matchedStudent = students.find((s) => s.studentCode.toUpperCase() === padded);
-        }
-      }
-
-      if (!matchedStudent) {
-        const fallbackCode =
-          rawClean.replace(/[^A-Za-z0-9]/g, '').slice(0, 7) ||
-          `STD${Math.floor(1000 + Math.random() * 9000)}`;
-        matchedStudent = {
-          id: fallbackCode,
-          studentCode: fallbackCode,
-          name:
-            rawClean.length > 2 && !rawClean.startsWith('http')
-              ? rawClean
-              : `พนักงานรหัส ${fallbackCode}`,
-          grade: 'แผนกทั่วไป',
-          dorm: 'หอ A',
-          carID: 'CAR01',
-          busNumber: 'CAR01',
-          dormOrStop: 'จุดรับส่งพนักงาน',
-          parentPhone: '089-111-2233',
-          avatarColor: 'bg-emerald-500',
-        };
-      }
-
-      registerScan(matchedStudent, data.source);
+      const { student, rawKey } = resolveStudentFromQrText(data.rawText, studentsRef.current);
+      registerScan(student, data.source, undefined, rawKey);
     },
-    [students, registerScan]
+    [registerScan]
   );
 
   // Handle Simulate Scan
   const handleSimulateScan = useCallback(() => {
-    if (students.length === 0) {
+    if (studentsRef.current.length === 0) {
       showToast('⚠️ กรุณาเข้าสู่ระบบ Google เพื่อดึงรายชื่อพนักงาน 300 คนจาก Firebase ก่อน');
       setIsFirebaseModalOpen(true);
       return;
     }
-    const picked = students[Math.floor(Math.random() * students.length)];
+    const picked = studentsRef.current[Math.floor(Math.random() * studentsRef.current.length)];
     registerScan(picked, 'simulated');
-  }, [students, registerScan, showToast]);
+  }, [registerScan, showToast]);
 
   const handleTestScanStudent = useCallback(
     (student: Student, scanType?: 'ขึ้นรถ' | 'ลงรถ') => {
@@ -643,14 +829,23 @@ export default function App() {
   );
 
   const handleBatchTestScanAll = useCallback(async () => {
-    const batchList = students.slice(0, 20);
+    const seen = new Set<string>();
+    const batchList: Student[] = [];
+    for (const s of studentsRef.current) {
+      const k = (s.studentCode || s.id || '').trim().toUpperCase();
+      if (k && !seen.has(k)) {
+        seen.add(k);
+        batchList.push(s);
+        if (batchList.length >= 20) break;
+      }
+    }
     for (let i = 0; i < batchList.length; i++) {
       const student = batchList[i];
       await registerScan(student, 'simulated');
       await new Promise((resolve) => setTimeout(resolve, 380));
     }
     showToast(`✓ ทดสอบสแกนบันทึกสำเร็จครบ ${batchList.length} รายชื่อ`);
-  }, [students, registerScan, showToast]);
+  }, [registerScan, showToast]);
 
   // ==========================================
   // FIREBASE CRUD HANDLERS: STUDENTS
@@ -837,26 +1032,36 @@ export default function App() {
   // FIREBASE CRUD HANDLERS: SCANS
   // ==========================================
   const handleDeleteScan = async (scanId: string) => {
+    removePendingScan(scanId);
     setScans((prev) => prev.filter((s) => s.id !== scanId && s.scanId !== scanId));
     if (isFirebaseReady()) {
-      const res = await deleteScanFromFirebase(scanId);
-      if (res.success) {
-        showToast('🔥 ลบรายการสแกนจาก Firebase แล้ว');
-      } else {
-        showToast(`แจ้งเตือน Firebase: ${res.error}`);
+      try {
+        const res = await deleteScanFromFirebase(scanId);
+        if (res.success) {
+          showToast('🔥 ลบรายการสแกนจาก Firebase แล้ว');
+        } else {
+          showToast(`แจ้งเตือน Firebase: ${res.error}`);
+        }
+      } catch (err) {
+        showToast(`⚠️ ลบจาก Firebase ไม่สำเร็จ: ${err instanceof Error ? err.message : ''}`);
       }
     }
   };
 
   const handleClearAllScans = async () => {
+    clearPendingScans();
     setScans([]);
     setActiveScan(null);
     if (isFirebaseReady()) {
-      const res = await clearAllScansInFirebase();
-      if (res.success) {
-        showToast('🔥 ล้างประวัติสแกนใน Firebase ทั้งหมดแล้ว');
-      } else {
-        showToast(`แจ้งเตือน Firebase: ${res.error || ''}`);
+      try {
+        const res = await clearAllScansInFirebase();
+        if (res.success) {
+          showToast('🔥 ล้างประวัติสแกนใน Firebase ทั้งหมดแล้ว');
+        } else {
+          showToast(`แจ้งเตือน Firebase: ${res.error || ''}`);
+        }
+      } catch (err) {
+        showToast(`⚠️ ล้างประวัติสแกน Firebase ไม่สำเร็จ: ${err instanceof Error ? err.message : ''}`);
       }
     }
   };
@@ -911,6 +1116,7 @@ export default function App() {
           {/* Top : Camera */}
           <CameraHalf
             onScanSuccess={handleScanSuccess}
+            checkDuplicateBeforeScan={checkDuplicateBeforeCameraScan}
             onSimulateScan={handleSimulateScan}
             onOpenTestScanModal={() => setIsTestScanModalOpen(true)}
             activeScan={activeScan}
